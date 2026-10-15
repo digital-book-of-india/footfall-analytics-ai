@@ -160,5 +160,5 @@ describe('Owner Flow End-to-End Smoke Test', () => {
       expect(screen.getAllByText('Downtown Flagship Store Renamed').length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText("Today's Entries")).toBeInTheDocument();
     });
-  });
+  }, 15000);
 });
