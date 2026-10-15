@@ -1,10 +1,11 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
+/* Base reset and fonts */
 :root {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   color-scheme: light;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
 }
 
 body {
@@ -29,9 +30,3 @@ body {
 .animate-fadeIn {
   animation: fadeIn 0.15s ease-out forwards;
 }
-
-/* Fallback utilities if Tailwind CLI is not active */
-.bg-gray-50 { background-color: #f8fafc; }
-.bg-slate-900 { background-color: #0f172a; }
-.text-gray-900 { color: #0f172a; }
-.border-gray-200 { border-color: #e2e8f0; }
