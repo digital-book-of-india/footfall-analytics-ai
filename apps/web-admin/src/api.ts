@@ -24,8 +24,31 @@ export async function adminFetch<T>(endpoint: string, options: RequestInit = {})
   }
 
   const json = await res.json();
-  if (!json.success) {
+  if (!json.success && json.success !== undefined) {
     throw new Error(json.error?.message || 'API request failed');
   }
-  return json.data as T;
+
+  const payload = json.data !== undefined ? json.data : json;
+
+  // Auto-normalize array responses into standard paginated structure if expected
+  if (Array.isArray(payload)) {
+    return {
+      items: payload,
+      total: payload.length,
+      page: 1,
+      limit: payload.length
+    } as unknown as T;
+  }
+
+  // Ensure items array always exists if backend uses a different key name
+  if (payload && typeof payload === 'object') {
+    if (!payload.items) {
+      payload.items = payload.shops || payload.owners || payload.cameras || payload.logs || [];
+    }
+    if (payload.total === undefined && Array.isArray(payload.items)) {
+      payload.total = payload.items.length;
+    }
+  }
+
+  return payload as T;
 }

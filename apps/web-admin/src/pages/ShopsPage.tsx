@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { adminFetch } from '../api';
 import { ShopItem, PaginatedResult } from '../types';
@@ -11,27 +11,30 @@ export function ShopsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'SUSPENDED'>('ALL');
   const [loading, setLoading] = useState(false);
-  const [modalShop, setModalShop] = useState<{ shop: ShopItem; target: 'ACTIVE' | 'SUSPENDED' } | null>(null);
+  const [modalShop, setModalShop] = useState<{ shop: any; target: 'ACTIVE' | 'SUSPENDED' } | null>(null);
 
-  const debouncedSearch = useDebounce(search, 400);
+  const debouncedSearch = useDebounce(search, 200);
 
   const loadShops = useCallback(async (page: number) => {
     setLoading(true);
     try {
       const q = new URLSearchParams({
         page: page.toString(),
-        limit: data.limit.toString(),
+        limit: '100',
         status: statusFilter,
-        search: debouncedSearch
+        search: debouncedSearch,
+        q: debouncedSearch
       });
-      const res = await adminFetch<PaginatedResult<ShopItem>>(`/admin/shops?${q.toString()}`);
-      setData(res);
+      const res: any = await adminFetch(`/admin/shops?${q.toString()}`);
+      const rawItems = Array.isArray(res) ? res : (res?.items || res?.shops || []);
+      const total = typeof res?.total === 'number' ? res.total : rawItems.length;
+      setData({ items: rawItems, total, page, limit: 10 });
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [data.limit, statusFilter, debouncedSearch]);
+  }, [statusFilter, debouncedSearch]);
 
   useEffect(() => {
     loadShops(1);
@@ -39,7 +42,8 @@ export function ShopsPage() {
 
   const handleModalSubmit = async (reason: string) => {
     if (!modalShop) return;
-    await adminFetch(`/admin/shops/${modalShop.shop._id}/status`, {
+    const targetId = modalShop.shop._id || modalShop.shop.id;
+    await adminFetch(`/admin/shops/${targetId}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status: modalShop.target, reason })
     });
@@ -47,12 +51,30 @@ export function ShopsPage() {
     loadShops(data.page);
   };
 
+  // Instant Smart Filter on Frontend
+  const filteredList = useMemo(() => {
+    let list = data?.items || [];
+    if (statusFilter !== 'ALL') {
+      list = list.filter((s: any) => (s.status || 'ACTIVE').toUpperCase() === statusFilter);
+    }
+    if (debouncedSearch.trim()) {
+      const term = debouncedSearch.toLowerCase().trim();
+      list = list.filter((s: any) => {
+        const name = (s.name || '').toLowerCase();
+        const ownerName = (s.ownerName || s.owner?.name || s.ownerUserId?.name || '').toLowerCase();
+        const ownerEmail = (s.ownerEmail || s.owner?.email || s.ownerUserId?.email || '').toLowerCase();
+        return name.includes(term) || ownerName.includes(term) || ownerEmail.includes(term);
+      });
+    }
+    return list;
+  }, [data?.items, statusFilter, debouncedSearch]);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
         <div>
           <h2 className="text-xl font-bold">Shops Directory</h2>
-          <p className="text-xs text-slate-400">Total: {data.total} shops onboarded</p>
+          <p className="text-xs text-slate-400">Total: {filteredList.length} shops matched</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="bg-slate-900 p-1 border border-slate-800 rounded flex gap-1">
@@ -92,16 +114,16 @@ export function ShopsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
-            {data.items.map(s => (
-              <tr key={s._id} className="hover:bg-slate-800/40">
+            {filteredList.map((s: any) => (
+              <tr key={s._id || s.id} className="hover:bg-slate-800/40">
                 <td className="p-3 font-semibold text-slate-200">{s.name}</td>
                 <td className="p-3 text-slate-400">
-                  <div>{s.ownerName || 'N/A'}</div>
-                  <div className="text-[10px] text-slate-500">{s.ownerEmail || 'N/A'}</div>
+                  <div>{s.ownerName || s.owner?.name || s.ownerUserId?.name || 'N/A'}</div>
+                  <div className="text-[10px] text-slate-500">{s.ownerEmail || s.owner?.email || s.ownerUserId?.email || (typeof s.ownerUserId === 'string' ? s.ownerUserId : 'N/A')}</div>
                 </td>
-                <td className="p-3 text-slate-300 font-mono">{s.cameraCount}</td>
-                <td className="p-3 text-slate-400">{s.timezone}</td>
-                <td className="p-3"><StatusBadge status={s.status} /></td>
+                <td className="p-3 text-slate-300 font-mono">{s.cameraCount ?? s.camerasCount ?? 0}</td>
+                <td className="p-3 text-slate-400">{s.timezone || 'Asia/Kolkata'}</td>
+                <td className="p-3"><StatusBadge status={s.status || 'ACTIVE'} /></td>
                 <td className="p-3 text-right">
                   {s.status === 'ACTIVE' ? (
                     <button 
@@ -121,36 +143,15 @@ export function ShopsPage() {
                 </td>
               </tr>
             ))}
-            {data.items.length === 0 && (
+            {filteredList.length === 0 && (
               <tr>
                 <td colSpan={6} className="p-6 text-center text-slate-500">
-                  {loading ? 'Fetching shops...' : 'No shops found'}
+                  {loading ? 'Fetching shops...' : 'No matching shops found'}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
-
-        <div className="p-3 border-t border-slate-800 flex justify-between items-center text-xs text-slate-400">
-          <span>Showing {data.items.length} of {data.total} shops</span>
-          <div className="flex gap-2">
-            <button 
-              disabled={data.page <= 1} 
-              onClick={() => loadShops(data.page - 1)}
-              className="p-1 rounded border border-slate-800 bg-slate-950 hover:bg-slate-800 disabled:opacity-40"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="px-2 py-1 bg-slate-950 border border-slate-800 rounded font-mono">{data.page}</span>
-            <button 
-              disabled={data.page * data.limit >= data.total} 
-              onClick={() => loadShops(data.page + 1)}
-              className="p-1 rounded border border-slate-800 bg-slate-950 hover:bg-slate-800 disabled:opacity-40"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
       </div>
 
       {modalShop && (

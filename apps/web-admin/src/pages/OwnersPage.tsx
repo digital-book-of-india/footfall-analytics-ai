@@ -1,5 +1,5 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
-import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
+﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Search } from 'lucide-react';
 import { adminFetch } from '../api';
 import { OwnerItem, PaginatedResult } from '../types';
 import { StatusBadge } from '../components/StatusBadge';
@@ -9,35 +9,50 @@ export function OwnersPage() {
   const [data, setData] = useState<PaginatedResult<OwnerItem>>({ items: [], total: 0, page: 1, limit: 10 });
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
-  const debouncedSearch = useDebounce(search, 400);
+  const debouncedSearch = useDebounce(search, 200);
 
   const loadOwners = useCallback(async (page: number) => {
     setLoading(true);
     try {
       const q = new URLSearchParams({
         page: page.toString(),
-        limit: data.limit.toString(),
-        search: debouncedSearch
+        limit: '100',
+        search: debouncedSearch,
+        q: debouncedSearch
       });
-      const res = await adminFetch<PaginatedResult<OwnerItem>>(`/admin/owners?${q.toString()}`);
-      setData(res);
+      const res: any = await adminFetch(`/admin/owners?${q.toString()}`);
+      const rawItems = Array.isArray(res) ? res : (res?.items || res?.owners || []);
+      const total = typeof res?.total === 'number' ? res.total : rawItems.length;
+      setData({ items: rawItems, total, page, limit: 10 });
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [data.limit, debouncedSearch]);
+  }, [debouncedSearch]);
 
   useEffect(() => {
     loadOwners(1);
   }, [debouncedSearch, loadOwners]);
+
+  // Instant Smart Filter on Frontend
+  const filteredList = useMemo(() => {
+    const list = data?.items || [];
+    if (!debouncedSearch.trim()) return list;
+    const term = debouncedSearch.toLowerCase().trim();
+    return list.filter((o: any) => {
+      const name = (o.name || '').toLowerCase();
+      const email = (o.email || '').toLowerCase();
+      return name.includes(term) || email.includes(term);
+    });
+  }, [data?.items, debouncedSearch]);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
         <div>
           <h2 className="text-xl font-bold">Shop Owners</h2>
-          <p className="text-xs text-slate-400">Total: {data.total} registered merchants</p>
+          <p className="text-xs text-slate-400">Total: {filteredList.length} registered merchants</p>
         </div>
         <div className="relative w-56 sm:w-64">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -63,45 +78,24 @@ export function OwnersPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
-            {data.items.map(o => (
-              <tr key={o._id} className="hover:bg-slate-800/40">
+            {filteredList.map((o: any) => (
+              <tr key={o._id || o.id} className="hover:bg-slate-800/40">
                 <td className="p-3 font-semibold text-slate-200">{o.name}</td>
                 <td className="p-3 text-slate-400 font-mono">{o.email}</td>
                 <td className="p-3">
                   <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 font-mono text-slate-300">
-                    {o.shopsCount} Shops
+                    {o.shopCount ?? o.shopsCount ?? (Array.isArray(o.shops) ? o.shops.length : 1)} Shops
                   </span>
                 </td>
-                <td className="p-3"><StatusBadge status={o.status} /></td>
-                <td className="p-3 text-slate-400">{new Date(o.createdAt).toLocaleDateString()}</td>
+                <td className="p-3"><StatusBadge status={o.status || 'ACTIVE'} /></td>
+                <td className="p-3 text-slate-400">{o.createdAt ? new Date(o.createdAt).toLocaleDateString() : 'N/A'}</td>
               </tr>
             ))}
-            {data.items.length === 0 && (
+            {filteredList.length === 0 && (
               <tr><td colSpan={5} className="p-6 text-center text-slate-500">{loading ? 'Loading...' : 'No merchants found'}</td></tr>
             )}
           </tbody>
         </table>
-
-        <div className="p-3 border-t border-slate-800 flex justify-between items-center text-xs text-slate-400">
-          <span>Showing {data.items.length} of {data.total} merchants</span>
-          <div className="flex gap-2">
-            <button 
-              disabled={data.page <= 1} 
-              onClick={() => loadOwners(data.page - 1)}
-              className="p-1 rounded border border-slate-800 bg-slate-950 hover:bg-slate-800 disabled:opacity-40"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="px-2 py-1 bg-slate-950 border border-slate-800 rounded font-mono">{data.page}</span>
-            <button 
-              disabled={data.page * data.limit >= data.total} 
-              onClick={() => loadOwners(data.page + 1)}
-              className="p-1 rounded border border-slate-800 bg-slate-950 hover:bg-slate-800 disabled:opacity-40"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
