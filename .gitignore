@@ -1,0 +1,13 @@
+node_modules
+.env
+.env.local
+.env.*.local
+dist
+.turbo
+.next
+out
+build
+*.log
+*.tsbuildinfo
+test-clips/*.mp4
+!test-clips/sample-entrance.mp4
