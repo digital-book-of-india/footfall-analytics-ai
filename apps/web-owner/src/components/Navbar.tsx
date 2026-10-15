@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useShop } from '../context/ShopContext';
 import {
-  BrandLogoIcon,
+  ActivityIcon,
   StorefrontIcon,
   DashboardIcon,
   CctvCameraIcon,
@@ -43,17 +43,14 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab, onOpe
               className="flex items-center gap-3 cursor-pointer group"
               onClick={() => setCurrentTab('dashboard')}
             >
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-blue-500 flex items-center justify-center text-white shadow-md shadow-blue-500/25 ring-2 ring-blue-500/20 group-hover:scale-105 transition-all duration-200">
-                <BrandLogoIcon size={22} className="text-white group-hover:rotate-3 transition-transform" />
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-700 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 group-hover:scale-105 transition-all">
+                <ActivityIcon size={22} className="animate-pulse" />
               </div>
               <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] uppercase tracking-widest font-black text-blue-600 block leading-tight">
-                    DBI Intelligence
-                  </span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                </div>
-                <span className="text-lg font-extrabold text-gray-900 tracking-tight">
+                <span className="text-[11px] uppercase tracking-wider font-bold text-blue-600 block leading-tight">
+                  DBI Intelligence
+                </span>
+                <span className="text-lg font-bold text-gray-900 tracking-tight block">
                   Footfall Analytics
                 </span>
               </div>
