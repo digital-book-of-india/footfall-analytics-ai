@@ -1,0 +1,63 @@
+import mongoose, { Schema, Document, Types } from 'mongoose';
+import { Camera, CameraStatus, ConnectionType } from '@dbi/shared-types';
+
+export interface ICameraDocument extends Document {
+  shopId: Types.ObjectId;
+  name: string;
+  connectionType: ConnectionType;
+  encryptedStreamUrl: string;
+  sanitizedStreamUrl: string;
+  encryptedCredentials?: string;
+  hasCredentials: boolean;
+  status: CameraStatus;
+  lastHeartbeatAt?: Date;
+  safeErrorCode?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  toResponseObject(): Camera;
+}
+
+const CameraSchema = new Schema<ICameraDocument>(
+  {
+    shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true, index: true },
+    name: { type: String, required: true, trim: true },
+    connectionType: { 
+      type: String, 
+      enum: ['RTSP', 'TEST_CLIP', 'HTTP_STREAM'], 
+      default: 'RTSP' 
+    },
+    encryptedStreamUrl: { type: String, required: true },
+    sanitizedStreamUrl: { type: String, required: true },
+    encryptedCredentials: { type: String },
+    hasCredentials: { type: Boolean, default: false },
+    status: { 
+      type: String, 
+      enum: ['NEEDS_SETUP', 'CONNECTING', 'ONLINE', 'DEGRADED', 'OFFLINE', 'CONFIG_ERROR'], 
+      default: 'CONNECTING',
+      index: true 
+    },
+    lastHeartbeatAt: { type: Date },
+    safeErrorCode: { type: String },
+  },
+  { timestamps: true }
+);
+
+/**
+ * Serializes camera safely without ever exposing encrypted or raw credentials
+ */
+CameraSchema.methods.toResponseObject = function (): Camera {
+  return {
+    id: this._id.toString(),
+    shopId: this.shopId.toString(),
+    name: this.name,
+    connectionType: this.connectionType,
+    status: this.status,
+    hasCredentials: this.hasCredentials,
+    lastHeartbeatAt: this.lastHeartbeatAt ? this.lastHeartbeatAt.toISOString() : undefined,
+    safeErrorCode: this.safeErrorCode,
+    createdAt: this.createdAt.toISOString(),
+    updatedAt: this.updatedAt.toISOString(),
+  };
+};
+
+export const CameraModel = mongoose.model<ICameraDocument>('Camera', CameraSchema);
