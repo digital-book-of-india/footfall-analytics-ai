@@ -17,11 +17,15 @@ describe('Owner Flow End-to-End Smoke Test', () => {
 
     // Step 1: Sign in screen is displayed
     expect(screen.getByText('DBI Footfall Analytics')).toBeInTheDocument();
-    expect(screen.getByText('One-Click Demo Owner Sign-In')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /sign in to dashboard/i })).toBeInTheDocument();
 
-    // Sign in via demo button
-    const demoSignInBtn = screen.getByText('One-Click Demo Owner Sign-In');
-    fireEvent.click(demoSignInBtn);
+    // Sign in via standard form
+    const emailInput = screen.getByPlaceholderText('owner@store.com');
+    const passwordInput = screen.getByPlaceholderText('••••••••');
+    fireEvent.change(emailInput, { target: { value: 'alex@store.com' } });
+    fireEvent.change(passwordInput, { target: { value: 'Password123!' } });
+    const signInBtn = screen.getByRole('button', { name: /sign in to dashboard/i });
+    fireEvent.click(signInBtn);
 
     // Step 2: Dashboard renders shop name and footfall summary
     await waitFor(() => {

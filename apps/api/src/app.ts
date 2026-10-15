@@ -10,7 +10,7 @@ export const app = express();
 
 // Enable CORS
 app.use(cors({
-  origin: '*', // Allow frontend dev origins
+  origin: true, // Allow frontend dev origins (reflect request origin)
   credentials: true,
 }));
 

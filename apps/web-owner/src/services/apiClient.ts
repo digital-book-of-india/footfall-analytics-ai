@@ -19,12 +19,17 @@ import {
 import { maskRtspUrl } from '../utils/security';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || '/api/v1';
-const USE_MOCK_FALLBACK = (import.meta as any).env?.VITE_USE_MOCK_FALLBACK !== 'false';
+const USE_MOCK_FALLBACK = (import.meta as any).env?.VITE_USE_MOCK_FALLBACK === 'true';
 
 class ApiClient {
   private token: string | null = null;
   private forceMock: boolean = false;
   private memoryStore: Map<string, string> = new Map();
+  private onUnauthorizedCallback: (() => void) | null = null;
+
+  public setOnUnauthorized(cb: (() => void) | null) {
+    this.onUnauthorizedCallback = cb;
+  }
 
   private getStorage(): Storage | null {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -59,7 +64,16 @@ class ApiClient {
 
   constructor() {
     this.token = this.getItem('dbi_token');
-    this.forceMock = this.getItem('dbi_force_mock') === 'true';
+    const forceMockEnv = (import.meta as any).env?.VITE_FORCE_MOCK;
+    if (forceMockEnv === 'false') {
+      this.forceMock = false;
+      this.setItem('dbi_force_mock', 'false');
+    } else if (forceMockEnv === 'true') {
+      this.forceMock = true;
+      this.setItem('dbi_force_mock', 'true');
+    } else {
+      this.forceMock = this.getItem('dbi_force_mock') === 'true';
+    }
   }
 
   public setToken(token: string | null) {
@@ -154,6 +168,7 @@ class ApiClient {
       if (err.isHttpError) {
         if (err.status === 401) {
           this.setToken(null);
+          this.onUnauthorizedCallback?.();
         }
         throw err;
       }
@@ -170,17 +185,25 @@ class ApiClient {
 
   // --- Auth APIs ---
   public async register(name: string, email: string, password: string): Promise<AuthResponse> {
-    return this.request<AuthResponse>('/auth/register', {
+    const res = await this.request<AuthResponse>('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ name, email, password })
     });
+    if (res && res.token) {
+      this.setToken(res.token);
+    }
+    return res;
   }
 
   public async login(email: string, password: string): Promise<AuthResponse> {
-    return this.request<AuthResponse>('/auth/login', {
+    const res = await this.request<AuthResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password })
     });
+    if (res && res.token) {
+      this.setToken(res.token);
+    }
+    return res;
   }
 
   public async getMe(): Promise<User> {
@@ -216,28 +239,49 @@ class ApiClient {
   }
 
   public async createCamera(shopId: string, input: CreateCameraInput): Promise<Camera> {
+    const payload = {
+      ...input,
+      streamUrl: (input as any).streamUrl || input.rtspUrl
+    };
     return this.request<Camera>(`/shops/${shopId}/cameras`, {
       method: 'POST',
-      body: JSON.stringify(input)
+      body: JSON.stringify(payload)
     });
   }
 
   public async updateCamera(shopId: string, cameraId: string, input: Partial<CreateCameraInput>): Promise<Camera> {
+    const payload = {
+      ...input,
+      streamUrl: (input as any).streamUrl || input.rtspUrl
+    };
     return this.request<Camera>(`/shops/${shopId}/cameras/${cameraId}`, {
       method: 'PATCH',
-      body: JSON.stringify(input)
+      body: JSON.stringify(payload)
     });
   }
 
   public async testCamera(cameraId: string): Promise<CameraTestResult> {
-    return this.request<CameraTestResult>(`/cameras/${cameraId}/test`, {
+    const res = await this.request<any>(`/cameras/${cameraId}/test`, {
       method: 'POST'
     });
+    return {
+      ...res,
+      isReachable: res.isReachable !== undefined ? res.isReachable : res.accessible,
+      accessible: res.accessible !== undefined ? res.accessible : res.isReachable
+    };
   }
 
   // --- Counting Line APIs ---
   public async getCountingLine(cameraId: string): Promise<CountingLine | null> {
-    return this.request<CountingLine | null>(`/cameras/${cameraId}/counting-line`);
+    try {
+      const res = await this.request<CountingLine | null>(`/cameras/${cameraId}/counting-line`);
+      return res;
+    } catch (err: any) {
+      if (err.status === 404 || err.message?.includes('NOT_FOUND') || err.message?.includes('404')) {
+        return null;
+      }
+      throw err;
+    }
   }
 
   public async updateCountingLine(cameraId: string, input: UpdateCountingLineInput): Promise<CountingLine> {
@@ -255,7 +299,8 @@ class ApiClient {
 
   public async getFootfallTimeseries(shopId: string, date?: string): Promise<FootfallTimeseriesPoint[]> {
     const query = date ? `?date=${encodeURIComponent(date)}` : '';
-    return this.request<FootfallTimeseriesPoint[]>(`/shops/${shopId}/footfall/timeseries${query}`);
+    const res = await this.request<any>(`/shops/${shopId}/footfall/timeseries${query}`);
+    return Array.isArray(res) ? res : (res?.points || []);
   }
 
   public async exportFootfallCsv(shopId: string, date?: string): Promise<string> {
@@ -264,10 +309,18 @@ class ApiClient {
   }
 
   public async resetOccupancy(shopId: string, input: ResetOccupancyInput): Promise<{ success: boolean; estimatedOccupancy: number }> {
-    return this.request<{ success: boolean; estimatedOccupancy: number }>(`/shops/${shopId}/footfall/occupancy-baseline`, {
+    const res = await this.request<any>(`/shops/${shopId}/footfall/occupancy-baseline`, {
       method: 'POST',
-      body: JSON.stringify(input)
+      body: JSON.stringify({
+        baseline: input.newOccupancy,
+        newOccupancy: input.newOccupancy,
+        reason: input.reason
+      })
     });
+    return {
+      success: true,
+      estimatedOccupancy: res?.estimatedOccupancy ?? input.newOccupancy
+    };
   }
 
   // ==========================================

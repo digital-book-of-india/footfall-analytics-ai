@@ -21,10 +21,11 @@ export const cameraRouter = Router({ mergeParams: true });
  */
 cameraRouter.post('/shops/:shopId/cameras', requireAuth, requireShopAccess, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name, connectionType, streamUrl, username, password } = req.body as CreateCameraRequest;
+    const { name, connectionType, streamUrl, rtspUrl, username, password } = req.body as any;
+    const finalStreamUrl = streamUrl || rtspUrl;
 
-    if (!name || !streamUrl) {
-      sendError(res, 400, 'BAD_REQUEST', 'Camera name and streamUrl are required');
+    if (!name || !finalStreamUrl) {
+      sendError(res, 400, 'BAD_REQUEST', 'Camera name and streamUrl or rtspUrl are required');
       return;
     }
 
@@ -32,16 +33,17 @@ cameraRouter.post('/shops/:shopId/cameras', requireAuth, requireShopAccess, asyn
     const hasCredentials = Boolean(username || password);
 
     // Encrypt sensitive details
-    const encryptedStreamUrl = encryptCredential(streamUrl);
-    const sanitizedUrl = sanitizeStreamUrl(streamUrl);
+    const encryptedStreamUrl = encryptCredential(finalStreamUrl);
+    const sanitizedUrl = sanitizeStreamUrl(finalStreamUrl);
 
     let encryptedCredentials: string | undefined;
     if (hasCredentials) {
       encryptedCredentials = encryptCredential(JSON.stringify({ username, password }));
     }
 
-    // Determine initial status: TEST_CLIP is immediately ONLINE, RTSP starts CONNECTING
-    const initialStatus = type === 'TEST_CLIP' ? 'ONLINE' : 'CONNECTING';
+    // Determine initial status: TEST_CLIP/MOCK_STREAM is immediately ONLINE, RTSP starts CONNECTING
+    const isClip = type === 'TEST_CLIP' || type === 'MOCK_STREAM';
+    const initialStatus = isClip ? 'ONLINE' : 'CONNECTING';
 
     const camera = await CameraModel.create({
       shopId: req.shop!._id,
@@ -52,7 +54,8 @@ cameraRouter.post('/shops/:shopId/cameras', requireAuth, requireShopAccess, asyn
       encryptedCredentials,
       hasCredentials,
       status: initialStatus,
-      lastHeartbeatAt: type === 'TEST_CLIP' ? new Date() : undefined,
+      lastHeartbeatAt: isClip ? new Date() : undefined,
+      safeErrorCode: type === 'MOCK_STREAM' ? 'DEMO_CLIP_ACTIVE' : undefined,
     });
 
     sendSuccess<Camera>(res, camera.toResponseObject(), 201);
@@ -109,6 +112,33 @@ cameraRouter.get('/cameras/:cameraId', requireAuth, async (req: AuthenticatedReq
 });
 
 /**
+ * PATCH /api/v1/shops/:shopId/cameras/:cameraId
+ * PATCH /api/v1/cameras/:cameraId
+ */
+cameraRouter.patch(['/shops/:shopId/cameras/:cameraId', '/cameras/:cameraId'], requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const context = await checkCameraAccess(req, res);
+    if (!context) return;
+    const { camera } = context;
+
+    const { name, connectionType, streamUrl, rtspUrl } = req.body;
+
+    if (name) camera.name = name.trim();
+    if (connectionType) camera.connectionType = connectionType;
+    const finalStreamUrl = streamUrl || rtspUrl;
+    if (finalStreamUrl) {
+      camera.encryptedStreamUrl = encryptCredential(finalStreamUrl);
+      camera.sanitizedStreamUrl = sanitizeStreamUrl(finalStreamUrl);
+    }
+
+    await camera.save();
+    sendSuccess<Camera>(res, camera.toResponseObject());
+  } catch (err: any) {
+    sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to update camera');
+  }
+});
+
+/**
  * POST /api/v1/cameras/:cameraId/test
  * Stream connection test
  */
@@ -120,12 +150,13 @@ cameraRouter.post('/cameras/:cameraId/test', requireAuth, async (req: Authentica
 
     // Simulate stream validation latency
     const startMs = Date.now();
-    const isClip = camera.connectionType === 'TEST_CLIP';
+    const isClip = camera.connectionType === 'TEST_CLIP' || camera.connectionType === 'MOCK_STREAM';
 
     // Update camera status based on test
-    camera.status = 'ONLINE';
+    const newStatus: any = camera.connectionType === 'MOCK_STREAM' ? 'DEGRADED' : 'ONLINE';
+    camera.status = newStatus;
     camera.lastHeartbeatAt = new Date();
-    camera.safeErrorCode = undefined;
+    camera.safeErrorCode = camera.connectionType === 'MOCK_STREAM' ? 'DEMO_CLIP_ACTIVE' : undefined;
     await camera.save();
 
     const latencyMs = Math.max(12, Date.now() - startMs + (isClip ? 15 : 45));
@@ -133,8 +164,10 @@ cameraRouter.post('/cameras/:cameraId/test', requireAuth, async (req: Authentica
     sendSuccess<CameraTestResponseData>(res, {
       cameraId: camera._id.toString(),
       accessible: true,
-      status: 'ONLINE',
+      isReachable: true,
+      status: newStatus,
       latencyMs,
+      safeErrorCode: camera.safeErrorCode || null,
       message: isClip ? 'Test clip stream validated successfully' : 'RTSP stream connection established and reachable',
       testedAt: new Date().toISOString(),
     });

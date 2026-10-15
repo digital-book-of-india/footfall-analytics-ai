@@ -23,6 +23,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    api.setOnUnauthorized(() => {
+      setUser(null);
+      setToken(null);
+    });
+
     async function initAuth() {
       const storedToken = api.getToken();
       if (!storedToken) {
@@ -51,6 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
     try {
       const res = await api.login(email, password);
+      api.setToken(res.token);
       setUser(res.user);
       setToken(res.token);
     } catch (err: any) {
@@ -66,6 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
     try {
       const res = await api.register(name, email, password);
+      api.setToken(res.token);
       setUser(res.user);
       setToken(res.token);
     } catch (err: any) {

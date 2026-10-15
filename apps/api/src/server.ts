@@ -1,7 +1,9 @@
 import { app } from './app.js';
 import { config } from './config.js';
 import { connectDatabase } from './db/connection.js';
+import * as dns from "node:dns";
 
+dns.setServers(["8.8.8.8", "8.8.4.4"]);
 async function bootstrap() {
   try {
     await connectDatabase();

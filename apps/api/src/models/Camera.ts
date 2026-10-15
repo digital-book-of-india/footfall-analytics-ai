@@ -23,7 +23,7 @@ const CameraSchema = new Schema<ICameraDocument>(
     name: { type: String, required: true, trim: true },
     connectionType: { 
       type: String, 
-      enum: ['RTSP', 'TEST_CLIP', 'HTTP_STREAM'], 
+      enum: ['RTSP', 'TEST_CLIP', 'HTTP_STREAM', 'MOCK_STREAM', 'WEBCAM'], 
       default: 'RTSP' 
     },
     encryptedStreamUrl: { type: String, required: true },

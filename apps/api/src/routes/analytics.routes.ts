@@ -45,12 +45,14 @@ analyticsRouter.get('/shops/:shopId/footfall/timeseries', requireAuth, requireSh
  */
 analyticsRouter.post('/shops/:shopId/footfall/occupancy-baseline', requireAuth, requireShopAccess, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { baseline, reason } = req.body as SetOccupancyBaselineRequest;
+    const rawBaseline = req.body.baseline !== undefined ? req.body.baseline : req.body.newOccupancy;
+    const reason = req.body.reason;
 
-    if (typeof baseline !== 'number' || baseline < 0) {
+    if (typeof rawBaseline !== 'number' || rawBaseline < 0) {
       sendError(res, 400, 'BAD_REQUEST', 'Baseline must be a non-negative number');
       return;
     }
+    const baseline = rawBaseline;
 
     const previousBaseline = req.shop!.occupancyBaseline;
     req.shop!.occupancyBaseline = baseline;
