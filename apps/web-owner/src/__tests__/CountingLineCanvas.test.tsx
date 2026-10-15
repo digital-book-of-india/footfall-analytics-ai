@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { CountingLineCanvas } from '../components/CountingLineCanvas';
 
 describe('CountingLineCanvas Component', () => {
@@ -61,11 +61,13 @@ describe('CountingLineCanvas Component', () => {
     const saveBtn = screen.getByText('Save Counting Line');
     fireEvent.click(saveBtn);
 
-    expect(handleSave).toHaveBeenCalledWith({
-      coordinates: { x1: 0.2, y1: 0.4, x2: 0.8, y2: 0.4 },
-      inDirection: 'IN',
-      outDirection: 'OUT',
-      enabled: true
+    await waitFor(() => {
+      expect(handleSave).toHaveBeenCalledWith({
+        coordinates: { x1: 0.2, y1: 0.4, x2: 0.8, y2: 0.4 },
+        inDirection: 'IN',
+        outDirection: 'OUT',
+        enabled: true
+      });
     });
   });
 });

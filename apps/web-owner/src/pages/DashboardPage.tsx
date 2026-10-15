@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useShop } from '../context/ShopContext';
-import { FootfallSummary, FootfallTimeseriesPoint } from '../types';
+import { FootfallSummary, FootfallTimeseriesPoint, Camera } from '../types';
 import { api } from '../services/apiClient';
 import { DataSourceBadge, QualityBadge } from '../components/StatusBadges';
 import {
@@ -12,7 +12,8 @@ import {
   SlidersIcon,
   CheckCircleIcon,
   CalendarIcon,
-  ActivityIcon
+  ActivityIcon,
+  VideoIcon
 } from '../components/icons';
 
 interface DashboardPageProps {
@@ -21,9 +22,10 @@ interface DashboardPageProps {
 }
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCameras, onNavigateToReports }) => {
-  const { selectedShop } = useShop();
+  const { selectedShop, isLoading: shopLoading } = useShop();
   const [summary, setSummary] = useState<FootfallSummary | null>(null);
   const [timeseries, setTimeseries] = useState<FootfallTimeseriesPoint[]>([]);
+  const [cameras, setCameras] = useState<Camera[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
@@ -44,12 +46,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
 
     setError(null);
     try {
-      const [sumData, timeData] = await Promise.all([
+      const [sumData, timeData, camData] = await Promise.all([
         api.getFootfallSummary(selectedShop.id),
-        api.getFootfallTimeseries(selectedShop.id)
+        api.getFootfallTimeseries(selectedShop.id),
+        api.getCameras(selectedShop.id)
       ]);
       setSummary(sumData);
       setTimeseries(timeData);
+      setCameras(camData);
       setResetValue(sumData.estimatedOccupancy);
       setLastRefreshed(new Date());
     } catch (err: any) {
@@ -102,6 +106,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
     20
   );
 
+  if (shopLoading && !selectedShop) {
+    return (
+      <div className="text-center py-20 px-4 animate-pulse">
+        <RefreshCwIcon size={32} className="animate-spin text-blue-600 mx-auto mb-3" />
+        <p className="text-gray-500 text-sm font-medium">Loading store dashboard...</p>
+      </div>
+    );
+  }
+
   if (!selectedShop) {
     return (
       <div className="text-center py-20 px-4">
@@ -125,9 +138,38 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{selectedShop.name}</h1>
             {summary && <DataSourceBadge source={summary.dataSource} />}
             {summary && <QualityBadge quality={summary.quality} />}
+            {cameras.length > 0 ? (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                  cameras.some(c => c.status === 'ONLINE')
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                    : cameras.some(c => c.status === 'DEGRADED')
+                    ? 'bg-amber-50 text-amber-800 border-amber-300'
+                    : 'bg-slate-100 text-slate-700 border-slate-300'
+                }`}
+                title="Camera network and AI stream health"
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    cameras.some(c => c.status === 'ONLINE')
+                      ? 'bg-emerald-500'
+                      : cameras.some(c => c.status === 'DEGRADED')
+                      ? 'bg-amber-500'
+                      : 'bg-slate-400'
+                  }`}
+                />
+                {cameras.filter(c => c.status === 'ONLINE' || c.status === 'DEGRADED').length}/{cameras.length} Cameras Active
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 border border-gray-200">
+                No Cameras Configured
+              </span>
+            )}
           </div>
           <p className="text-sm text-gray-500 mt-1 flex items-center gap-2">
             <span>Timezone: {selectedShop.timezone}</span>
+            <span>•</span>
+            <span>Baseline Offset: {summary?.occupancyBaseline ?? selectedShop.occupancyBaseline}</span>
             <span>•</span>
             <span>Last updated: {lastRefreshed.toLocaleTimeString()}</span>
           </p>
@@ -269,26 +311,37 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
           </p>
         </div>
 
-        {/* Baseline & Ratio Card */}
+        {/* Entrance Camera Health Card */}
         <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Baseline Offset</p>
-              <h3 className="text-3xl font-extrabold text-gray-900 mt-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Entrance Camera Health</p>
+              <h3 className="text-2xl font-extrabold text-gray-900 mt-2">
                 {isLoading ? (
                   <span className="inline-block w-16 h-8 bg-gray-200 animate-pulse rounded"></span>
+                ) : cameras.length > 0 ? (
+                  `${cameras.filter(c => c.status === 'ONLINE' || c.status === 'DEGRADED').length}/${cameras.length} Active`
                 ) : (
-                  summary?.occupancyBaseline ?? selectedShop.occupancyBaseline
+                  'Needs Setup'
                 )}
               </h3>
             </div>
             <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center border border-purple-100">
-              <SlidersIcon size={24} />
+              <VideoIcon size={24} />
             </div>
           </div>
           <p className="text-xs text-gray-500 mt-3 flex items-center justify-between">
-            <span>Starting occupancy anchor</span>
-            <span className="text-purple-600 font-medium">Store setting</span>
+            <span className="truncate max-w-[150px]">
+              {cameras.length > 0
+                ? cameras.some(c => c.connectionType === 'MOCK_STREAM') ? 'DEMO Clip stream' : 'Live RTSP Stream'
+                : 'No camera stream'}
+            </span>
+            <button
+              onClick={onNavigateToCameras}
+              className="text-blue-600 hover:underline font-semibold shrink-0"
+            >
+              Manage →
+            </button>
           </p>
         </div>
       </div>
@@ -461,10 +514,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
 
             <form onSubmit={handleResetOccupancy} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                <label htmlFor="calibrate-occupancy-input" className="block text-xs font-semibold text-gray-700 mb-1">
                   Current Actual In-Store Occupancy
                 </label>
                 <input
+                  id="calibrate-occupancy-input"
                   type="number"
                   min="0"
                   required
@@ -478,10 +532,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                <label htmlFor="calibrate-reason-input" className="block text-xs font-semibold text-gray-700 mb-1">
                   Calibration Reason / Note
                 </label>
                 <input
+                  id="calibrate-reason-input"
                   type="text"
                   value={resetReason}
                   onChange={e => setResetReason(e.target.value)}

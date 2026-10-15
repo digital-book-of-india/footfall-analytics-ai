@@ -11,8 +11,9 @@ describe('Owner Flow End-to-End Smoke Test', () => {
     api.setForceMock(true);
   });
 
+
   it('completes the full end-to-end owner journey successfully', async () => {
-    render(<App />);
+    const { unmount } = render(<App />);
 
     // Step 1: Sign in screen is displayed
     expect(screen.getByText('DBI Footfall Analytics')).toBeInTheDocument();
@@ -40,7 +41,26 @@ describe('Owner Flow End-to-End Smoke Test', () => {
       expect(screen.getByText('Quality: OK')).toBeInTheDocument();
     });
 
-    // Step 3: Navigate to Cameras & Counting Lines tab
+    // Step 3: Navigate to Store Settings and Edit Shop Profile
+    const settingsTabBtns = screen.getAllByRole('button', { name: /settings/i });
+    fireEvent.click(settingsTabBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Store Profile & Operating Settings')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('Downtown Flagship Store')).toBeInTheDocument();
+    });
+
+    // Edit store name
+    const storeNameInput = screen.getByDisplayValue('Downtown Flagship Store');
+    fireEvent.change(storeNameInput, { target: { value: 'Downtown Flagship Store Renamed' } });
+    const saveProfileBtn = screen.getByRole('button', { name: /save profile changes/i });
+    fireEvent.click(saveProfileBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Store profile and operating timezone updated successfully/i)).toBeInTheDocument();
+    });
+
+    // Step 4: Navigate to Cameras & Counting Lines tab
     const camerasTabBtns = screen.getAllByRole('button', { name: /cameras/i });
     fireEvent.click(camerasTabBtns[0]);
 
@@ -55,16 +75,34 @@ describe('Owner Flow End-to-End Smoke Test', () => {
       expect(screen.getByText(/rtsp:\/\/admin:\*\*\*\*@/i)).toBeInTheDocument();
     });
 
-    // Step 4: Run Stream Test
-    const testConnectionBtn = screen.getByRole('button', { name: /test connection/i });
+    // Step 5: Run Stream Test
+    const testConnectionBtn = screen.getAllByRole('button', { name: /test connection/i })[0];
     fireEvent.click(testConnectionBtn);
 
     await waitFor(() => {
       expect(screen.getByText(/RTSP handshake and frame grab verified successfully/i)).toBeInTheDocument();
     });
 
-    // Step 5: Open Virtual Counting Line Modal
-    const configLineBtn = screen.getByRole('button', { name: /configure counting line/i });
+    // Step 6: Edit Camera Stream Metadata
+    const editStreamBtn = screen.getAllByRole('button', { name: /edit stream/i })[0];
+    fireEvent.click(editStreamBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Edit Camera Configuration')).toBeInTheDocument();
+    });
+
+    const editNameInput = screen.getByDisplayValue('Main Entrance Camera');
+    fireEvent.change(editNameInput, { target: { value: 'Main Front Door Camera' } });
+    const saveEditCameraBtn = screen.getByRole('button', { name: /save configuration/i });
+    fireEvent.click(saveEditCameraBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Edit Camera Configuration')).not.toBeInTheDocument();
+      expect(screen.getByText('Main Front Door Camera')).toBeInTheDocument();
+    });
+
+    // Step 7: Open Virtual Counting Line Modal
+    const configLineBtn = screen.getAllByRole('button', { name: /configure counting line/i })[0];
     fireEvent.click(configLineBtn);
 
     await waitFor(() => {
@@ -80,7 +118,31 @@ describe('Owner Flow End-to-End Smoke Test', () => {
       expect(screen.queryByText('Virtual Counting Line Calibration')).not.toBeInTheDocument();
     });
 
-    // Step 6: Navigate to Reports & CSV Export
+    // Step 8: Open Calibrate Occupancy on Dashboard
+    const dashboardTabBtns = screen.getAllByRole('button', { name: /dashboard/i });
+    fireEvent.click(dashboardTabBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Current Occupancy')).toBeInTheDocument();
+    });
+
+    const calibrateBtn = screen.getByRole('button', { name: /calibrate occupancy/i });
+    fireEvent.click(calibrateBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Calibrate Estimated Occupancy')).toBeInTheDocument();
+    });
+
+    const occupancyInput = screen.getByLabelText(/current actual in-store occupancy/i);
+    fireEvent.change(occupancyInput, { target: { value: '75' } });
+    const confirmCalibrateBtn = screen.getByRole('button', { name: /confirm calibration/i });
+    fireEvent.click(confirmCalibrateBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Occupancy count calibrated successfully/i)).toBeInTheDocument();
+    });
+
+    // Step 9: Navigate to Reports & CSV Export
     const reportsTabBtns = screen.getAllByRole('button', { name: /reports/i });
     fireEvent.click(reportsTabBtns[0]);
 
@@ -89,13 +151,14 @@ describe('Owner Flow End-to-End Smoke Test', () => {
       expect(screen.getByRole('button', { name: /export to csv/i })).toBeInTheDocument();
     });
 
-    // Step 7: Navigate to Store Settings
-    const settingsTabBtns = screen.getAllByRole('button', { name: /settings/i });
-    fireEvent.click(settingsTabBtns[0]);
+    // Step 10: Refresh the application and verify persisted data
+    unmount();
+    render(<App />);
 
+    // Persisted session reloads directly into dashboard without sign-in prompt
     await waitFor(() => {
-      expect(screen.getByText('Store Profile & Operating Settings')).toBeInTheDocument();
-      expect(screen.getByDisplayValue('Downtown Flagship Store')).toBeInTheDocument();
+      expect(screen.getAllByText('Downtown Flagship Store Renamed').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText("Today's Entries")).toBeInTheDocument();
     });
   });
 });

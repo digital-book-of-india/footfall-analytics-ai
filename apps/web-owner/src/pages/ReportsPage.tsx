@@ -14,7 +14,7 @@ import {
 } from '../components/icons';
 
 export const ReportsPage: React.FC = () => {
-  const { selectedShop } = useShop();
+  const { selectedShop, isLoading: shopLoading } = useShop();
   const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [timeseries, setTimeseries] = useState<FootfallTimeseriesPoint[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -77,6 +77,14 @@ export const ReportsPage: React.FC = () => {
     },
     { hour: 'N/A', count: 0 }
   );
+
+  if (shopLoading && !selectedShop) {
+    return (
+      <div className="bg-white p-12 rounded-2xl border border-gray-200 text-center">
+        <p className="text-gray-500 text-sm font-medium animate-pulse">Loading footfall reports...</p>
+      </div>
+    );
+  }
 
   if (!selectedShop) {
     return (

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { ActivityIcon, AlertTriangleIcon, CheckCircleIcon, ShieldIcon } from '../components/icons';
+import { api } from '../services/apiClient';
 
 export const AuthPage: React.FC = () => {
   const { login, register, error, clearError } = useAuth();
@@ -31,6 +32,7 @@ export const AuthPage: React.FC = () => {
     setIsSubmitting(true);
     clearError();
     try {
+      api.setForceMock(true);
       await login('demo.owner@dbi-intelligence.com', 'DemoPass123!');
     } catch {
       // Handled in context

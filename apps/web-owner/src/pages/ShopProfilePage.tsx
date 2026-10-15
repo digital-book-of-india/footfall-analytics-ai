@@ -24,7 +24,7 @@ const TIMEZONE_OPTIONS = [
 ];
 
 export const ShopProfilePage: React.FC = () => {
-  const { selectedShop, updateShop, shops, selectShop } = useShop();
+  const { selectedShop, updateShop, shops, selectShop, isLoading: shopLoading } = useShop();
 
   const [name, setName] = useState<string>('');
   const [timezone, setTimezone] = useState<string>('Asia/Kolkata');
@@ -61,6 +61,14 @@ export const ShopProfilePage: React.FC = () => {
       setIsSaving(false);
     }
   };
+
+  if (shopLoading && !selectedShop) {
+    return (
+      <div className="bg-white p-12 rounded-2xl border border-gray-200 text-center">
+        <p className="text-gray-500 text-sm font-medium animate-pulse">Loading store settings...</p>
+      </div>
+    );
+  }
 
   if (!selectedShop) {
     return (

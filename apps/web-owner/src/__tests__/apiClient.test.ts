@@ -2,13 +2,14 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { api } from '../services/apiClient';
 
 describe('ApiClient & Owner Contract Integration', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear();
-    api.setToken(null);
     api.setForceMock(true); // Test with mock contract adapter
+    await api.login('owner@downtownstore.com', 'Pass123!');
   });
 
   it('authenticates owner with register and login', async () => {
+    api.setToken(null);
     const regRes = await api.register('John Owner', 'john@retail.com', 'Pass123!');
     expect(regRes.user.email).toBe('john@retail.com');
     expect(regRes.user.role).toBe('SHOP_OWNER');
@@ -150,5 +151,71 @@ describe('ApiClient & Owner Contract Integration', () => {
 
     const summary = await api.getFootfallSummary(shops[0].id);
     expect(summary.occupancyBaseline).toBe(42);
+  });
+
+  it('rejects access to protected store endpoints when unauthenticated', async () => {
+    api.setToken(null);
+    await expect(api.getShops()).rejects.toThrow(/UNAUTHORIZED/);
+    await expect(api.getMe()).rejects.toThrow(/UNAUTHORIZED/);
+  });
+
+  it('enforces multi-tenant isolation so one owner cannot access another owner store', async () => {
+    // Current user is usr_owner_1 who owns shop_001
+    const owner1Shops = await api.getShops();
+    const shop1Id = owner1Shops[0].id;
+    expect(shop1Id).toBe('shop_001');
+
+    // Switch to Owner 2
+    await api.login('owner2@other.com', 'Pass123!');
+    const owner2Shops = await api.getShops();
+    // Owner 2 should not see Owner 1's shops in their shop list
+    expect(owner2Shops.some(s => s.id === shop1Id)).toBe(false);
+
+    // Direct access to Owner 1's shop endpoints must be rejected with 403 Forbidden
+    await expect(api.getShop(shop1Id)).rejects.toThrow(/FORBIDDEN/);
+    await expect(api.getCameras(shop1Id)).rejects.toThrow(/FORBIDDEN/);
+    await expect(api.getFootfallSummary(shop1Id)).rejects.toThrow(/FORBIDDEN/);
+    await expect(api.exportFootfallCsv(shop1Id)).rejects.toThrow(/FORBIDDEN/);
+  });
+
+  it('updates camera metadata and stream settings', async () => {
+    const shops = await api.getShops();
+    const cameras = await api.getCameras(shops[0].id);
+    const camera = cameras[0];
+
+    const updated = await api.updateCamera(shops[0].id, camera.id, {
+      name: 'South Side Glass Entrance',
+      connectionType: 'RTSP',
+      rtspUrl: 'rtsp://admin:newSecret@192.168.1.200:554/live'
+    });
+
+    expect(updated.name).toBe('South Side Glass Entrance');
+    expect(updated.rtspUrlMasked).toContain('****');
+    expect(updated.rtspUrlMasked).not.toContain('newSecret');
+  });
+
+  it('labels camera test as DEGRADED with DEMO mode when using mock stream clip', async () => {
+    const shops = await api.getShops();
+    const mockCam = await api.createCamera(shops[0].id, {
+      name: 'Sample Clip Entrance',
+      connectionType: 'MOCK_STREAM',
+      rtspUrl: 'rtsp://mock-stream/demo'
+    });
+
+    const testRes = await api.testCamera(mockCam.id);
+    expect(testRes.cameraId).toBe(mockCam.id);
+    expect(testRes.status).toBe('DEGRADED');
+    expect(testRes.safeErrorCode).toBe('DEMO_CLIP_ACTIVE');
+    expect(testRes.message).toContain('DEMO');
+  });
+
+  it('handles empty results safely for dates with no recorded footfall', async () => {
+    const shops = await api.getShops();
+    const pastTimeseries = await api.getFootfallTimeseries(shops[0].id, '2024-01-01');
+    expect(Array.isArray(pastTimeseries)).toBe(true);
+    expect(pastTimeseries.length).toBe(0);
+
+    const emptyCsv = await api.exportFootfallCsv(shops[0].id, '2024-01-01');
+    expect(emptyCsv.trim()).toBe('Date,Hour,Entries,Exits,EstimatedOccupancy,Quality,DataSource');
   });
 });

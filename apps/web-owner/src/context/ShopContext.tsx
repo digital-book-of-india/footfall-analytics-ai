@@ -20,11 +20,14 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const { isAuthenticated } = useAuth();
   const [shops, setShops] = useState<Shop[]>([]);
   const [selectedShop, setSelectedShop] = useState<Shop | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(isAuthenticated);
   const [error, setError] = useState<string | null>(null);
 
   const refreshShops = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
@@ -54,6 +57,7 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else {
       setShops([]);
       setSelectedShop(null);
+      setIsLoading(false);
     }
   }, [isAuthenticated, refreshShops]);
 

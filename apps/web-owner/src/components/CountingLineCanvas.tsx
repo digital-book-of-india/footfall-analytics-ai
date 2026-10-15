@@ -34,6 +34,14 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
   const [dragHandle, setDragHandle] = useState<'p1' | 'p2' | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const isMountedRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const handlePointerDown = (handle: 'p1' | 'p2', e: React.PointerEvent) => {
     e.preventDefault();
@@ -88,7 +96,9 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
         enabled
       });
     } finally {
-      setIsSaving(false);
+      if (isMountedRef.current) {
+        setIsSaving(false);
+      }
     }
   };
 

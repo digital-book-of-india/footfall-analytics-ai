@@ -17,7 +17,7 @@ import {
 } from '../components/icons';
 
 export const CameraManagementPage: React.FC = () => {
-  const { selectedShop } = useShop();
+  const { selectedShop, isLoading: shopLoading } = useShop();
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +31,13 @@ export const CameraManagementPage: React.FC = () => {
   const [newPassword, setNewPassword] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
+  // Edit Camera Modal
+  const [editingCamera, setEditingCamera] = useState<Camera | null>(null);
+  const [editCameraName, setEditCameraName] = useState<string>('');
+  const [editConnectionType, setEditConnectionType] = useState<'RTSP' | 'WEBCAM' | 'MOCK_STREAM'>('RTSP');
+  const [editRtspUrl, setEditRtspUrl] = useState<string>('');
+  const [isSavingEdit, setIsSavingEdit] = useState<boolean>(false);
+
   // Test Camera State
   const [testingCameraId, setTestingCameraId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, CameraTestResult>>({});
@@ -39,6 +46,33 @@ export const CameraManagementPage: React.FC = () => {
   const [activeLineCamera, setActiveLineCamera] = useState<Camera | null>(null);
   const [activeLine, setActiveLine] = useState<CountingLine | null>(null);
   const [loadingLine, setLoadingLine] = useState<boolean>(false);
+
+  const handleOpenEditCamera = (camera: Camera) => {
+    setEditingCamera(camera);
+    setEditCameraName(camera.name);
+    setEditConnectionType(camera.connectionType);
+    setEditRtspUrl(camera.rtspUrlMasked || '');
+  };
+
+  const handleSaveEditCamera = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedShop || !editingCamera) return;
+    setIsSavingEdit(true);
+    setError(null);
+    try {
+      await api.updateCamera(selectedShop.id, editingCamera.id, {
+        name: editCameraName,
+        connectionType: editConnectionType,
+        rtspUrl: editRtspUrl
+      });
+      setEditingCamera(null);
+      fetchCameras();
+    } catch (err: any) {
+      setError(err.message || 'Failed to update camera feed');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
 
   const fetchCameras = useCallback(async () => {
     if (!selectedShop) {
@@ -143,6 +177,14 @@ export const CameraManagementPage: React.FC = () => {
       setError(err.message || 'Failed to save virtual line coordinates');
     }
   };
+
+  if (shopLoading && !selectedShop) {
+    return (
+      <div className="bg-white p-12 rounded-2xl border border-gray-200 text-center">
+        <p className="text-gray-500 text-sm font-medium animate-pulse">Loading camera configurations...</p>
+      </div>
+    );
+  }
 
   if (!selectedShop) {
     return (
@@ -264,9 +306,14 @@ export const CameraManagementPage: React.FC = () => {
                   {/* Title & Status */}
                   <div className="flex justify-between items-start gap-3">
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <VideoIcon size={18} className="text-gray-700" />
                         <h3 className="text-base font-bold text-gray-900">{camera.name}</h3>
+                        {camera.connectionType === 'MOCK_STREAM' && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            DEMO STREAM
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-gray-400 font-mono mt-1">ID: {camera.id}</p>
                     </div>
@@ -327,7 +374,7 @@ export const CameraManagementPage: React.FC = () => {
                 </div>
 
                 {/* Actions Footer */}
-                <div className="p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-end gap-2">
+                <div className="p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-end gap-2 flex-wrap">
                   <button
                     type="button"
                     onClick={() => handleTestCamera(camera.id)}
@@ -336,6 +383,15 @@ export const CameraManagementPage: React.FC = () => {
                   >
                     <RefreshCwIcon size={14} className={isTesting ? 'animate-spin' : ''} />
                     {isTesting ? 'Testing Stream...' : 'Test Connection'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEditCamera(camera)}
+                    className="px-3.5 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+                  >
+                    <SlidersIcon size={14} />
+                    Edit Stream
                   </button>
 
                   <button
@@ -459,6 +515,86 @@ export const CameraManagementPage: React.FC = () => {
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50"
                 >
                   {isSubmitting ? 'Registering...' : 'Add Camera'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Camera Modal */}
+      {editingCamera && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-gray-200">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <VideoIcon size={20} className="text-blue-600" />
+                  Edit Camera Configuration
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Update stream metadata for {editingCamera.name} (ID: {editingCamera.id})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingCamera(null)}
+                className="text-gray-400 hover:text-gray-600 text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditCamera} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Camera Label / Name</label>
+                <input
+                  type="text"
+                  required
+                  value={editCameraName}
+                  onChange={e => setEditCameraName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Connection Protocol</label>
+                <select
+                  value={editConnectionType}
+                  onChange={e => setEditConnectionType(e.target.value as any)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-white focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="RTSP">RTSP (Standard IP Camera Stream)</option>
+                  <option value="MOCK_STREAM">Mock Clip Pipeline (DEMO Mode)</option>
+                  <option value="WEBCAM">USB / Direct Video Capture</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">RTSP Stream Address / URL</label>
+                <input
+                  type="text"
+                  required
+                  value={editRtspUrl}
+                  onChange={e => setEditRtspUrl(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <div className="flex justify-end items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingCamera(null)}
+                  className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingEdit}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50"
+                >
+                  {isSavingEdit ? 'Saving...' : 'Save Configuration'}
                 </button>
               </div>
             </form>

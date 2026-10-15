@@ -5,6 +5,7 @@ import {
   AuthResponse,
   Shop,
   Camera,
+  CameraStatus,
   CountingLine,
   CameraTestResult,
   FootfallSummary,
@@ -18,6 +19,7 @@ import {
 import { maskRtspUrl } from '../utils/security';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || '/api/v1';
+const USE_MOCK_FALLBACK = (import.meta as any).env?.VITE_USE_MOCK_FALLBACK !== 'false';
 
 class ApiClient {
   private token: string | null = null;
@@ -66,6 +68,7 @@ class ApiClient {
       this.setItem('dbi_token', token);
     } else {
       this.removeItem('dbi_token');
+      this.removeItem('dbi_mock_user');
     }
   }
 
@@ -91,8 +94,9 @@ class ApiClient {
       return this.mockHandler<T>(endpoint, options);
     }
 
+    const isCsv = endpoint.includes('/export.csv');
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+      ...(isCsv ? { Accept: 'text/csv' } : { 'Content-Type': 'application/json' }),
       'X-Request-Id': this.generateRequestId(),
       ...(options.headers as Record<string, string> || {})
     };
@@ -108,28 +112,59 @@ class ApiClient {
       });
 
       // Special case for CSV download
-      if (endpoint.endsWith('/export.csv')) {
-        if (!response.ok) throw new Error('Failed to download CSV');
+      if (isCsv) {
+        if (!response.ok) {
+          const httpErr = new Error(`Failed to download CSV: ${response.statusText} (${response.status})`);
+          (httpErr as any).isHttpError = true;
+          (httpErr as any).status = response.status;
+          throw httpErr;
+        }
         const text = await response.text();
         return text as unknown as T;
       }
 
-      const json: ApiResponse<T> | ApiError = await response.json();
+      let json: any;
+      try {
+        json = await response.json();
+      } catch {
+        // If server returned non-JSON on a 5xx response (e.g. Vite dev proxy ECONNREFUSED 500/502/504 when backend is not running)
+        // and mock fallback is allowed, allow fallback to mockHandler
+        if (USE_MOCK_FALLBACK && response.status >= 500) {
+          throw new Error(`Proxy/Gateway unreachable (${response.status})`);
+        }
+        const parseErr = new Error(`Invalid JSON response from server (${response.status})`);
+        (parseErr as any).isHttpError = true;
+        (parseErr as any).status = response.status;
+        throw parseErr;
+      }
 
       if (!response.ok || !json.success) {
         const error = (json as ApiError).error || {
-          code: 'SERVER_ERROR',
+          code: response.status === 401 ? 'UNAUTHORIZED' : response.status === 403 ? 'FORBIDDEN' : 'SERVER_ERROR',
           message: response.statusText || 'Unknown error occurred'
         };
-        throw new Error(`[${error.code}] ${error.message}`);
+        const httpErr = new Error(`[${error.code}] ${error.message}`);
+        (httpErr as any).isHttpError = true;
+        (httpErr as any).status = response.status;
+        throw httpErr;
       }
 
       return (json as ApiResponse<T>).data;
     } catch (err: any) {
-      // If backend is not available, gracefully fallback to mock data in dev
-      // eslint-disable-next-line no-console
-      console.warn(`[ApiClient] Live API request to ${endpoint} failed, checking mock adapter...`, err.message);
-      return this.mockHandler<T>(endpoint, options);
+      if (err.isHttpError) {
+        if (err.status === 401) {
+          this.setToken(null);
+        }
+        throw err;
+      }
+      // If backend is not available (network failure, fetch TypeError, or dev proxy 500 ECONNREFUSED), fallback to mock
+      if (USE_MOCK_FALLBACK) {
+        this.setForceMock(true);
+        // eslint-disable-next-line no-console
+        console.warn(`[ApiClient] Live API request to ${endpoint} failed (${err.message}), switched to mock mode.`);
+        return this.mockHandler<T>(endpoint, options);
+      }
+      throw err;
     }
   }
 
@@ -183,6 +218,13 @@ class ApiClient {
   public async createCamera(shopId: string, input: CreateCameraInput): Promise<Camera> {
     return this.request<Camera>(`/shops/${shopId}/cameras`, {
       method: 'POST',
+      body: JSON.stringify(input)
+    });
+  }
+
+  public async updateCamera(shopId: string, cameraId: string, input: Partial<CreateCameraInput>): Promise<Camera> {
+    return this.request<Camera>(`/shops/${shopId}/cameras/${cameraId}`, {
+      method: 'PATCH',
       body: JSON.stringify(input)
     });
   }
@@ -249,6 +291,26 @@ class ApiClient {
     const method = options.method || 'GET';
     const body = options.body ? JSON.parse(options.body as string) : {};
 
+    // Current user resolution
+    const token = this.getToken();
+    let currentUser: User | null = null;
+    const storedUserJson = this.getItem('dbi_mock_user');
+    if (storedUserJson) {
+      try {
+        currentUser = JSON.parse(storedUserJson);
+      } catch {
+        currentUser = null;
+      }
+    } else if (token) {
+      currentUser = {
+        id: 'usr_owner_1',
+        name: 'Alex Retailer',
+        email: 'alex@store.com',
+        role: 'SHOP_OWNER',
+        status: 'ACTIVE'
+      };
+    }
+
     // Load persistent mock state
     const defaultShops: Shop[] = [
       {
@@ -301,61 +363,100 @@ class ApiClient {
 
     let baselineOverrides: Record<string, number> = JSON.parse(this.getItem('dbi_mock_baselines') || '{}');
 
+    // Helper: Enforce tenant isolation by verifying current user owns the shop
+    const verifyShopOwnership = (shopId: string): Shop => {
+      const found = shops.find(s => s.id === shopId);
+      if (!found) {
+        const err = new Error(`[NOT_FOUND] Shop ${shopId} not found`);
+        (err as any).isHttpError = true;
+        (err as any).status = 404;
+        throw err;
+      }
+      if (currentUser && found.ownerUserId !== currentUser.id) {
+        const err = new Error(`[FORBIDDEN] Access denied: You do not have permission to view or modify this shop`);
+        (err as any).isHttpError = true;
+        (err as any).status = 403;
+        throw err;
+      }
+      return found;
+    };
+
     // 1. /auth/register
     if (endpoint === '/auth/register' && method === 'POST') {
       const user: User = {
-        id: 'usr_' + Math.random().toString(36).substr(2, 6),
+        id: 'usr_' + Math.random().toString(36).substring(2, 8),
         name: body.name || 'Store Owner',
         email: body.email,
         role: 'SHOP_OWNER',
         status: 'ACTIVE',
         createdAt: new Date().toISOString()
       };
-      const token = 'mock_jwt_token_' + Date.now();
+      const token = 'mock_jwt_token_' + user.id;
       this.setToken(token);
+      this.setItem('dbi_mock_user', JSON.stringify(user));
       return { user, token };
     }
 
     // 2. /auth/login
     if (endpoint === '/auth/login' && method === 'POST') {
+      const isKnownOwner2 = body.email === 'owner2@other.com';
       const user: User = {
-        id: 'usr_owner_1',
-        name: body.email?.split('@')[0] || 'Demo Owner',
+        id: isKnownOwner2 ? 'usr_owner_2' : 'usr_owner_1',
+        name: body.name || body.email?.split('@')[0] || 'Demo Owner',
         email: body.email,
         role: 'SHOP_OWNER',
         status: 'ACTIVE',
         createdAt: new Date().toISOString()
       };
-      const token = 'mock_jwt_token_demo';
+      const token = 'mock_jwt_token_' + user.id;
       this.setToken(token);
+      this.setItem('dbi_mock_user', JSON.stringify(user));
       return { user, token };
     }
 
     // 3. /auth/me
     if (endpoint === '/auth/me') {
-      return {
-        id: 'usr_owner_1',
-        name: 'Alex Retailer',
-        email: 'alex@store.com',
-        role: 'SHOP_OWNER',
-        status: 'ACTIVE',
-        createdAt: new Date().toISOString()
-      };
+      if (!this.token || !currentUser) {
+        const err = new Error('[UNAUTHORIZED] No active session found');
+        (err as any).isHttpError = true;
+        (err as any).status = 401;
+        throw err;
+      }
+      return currentUser;
     }
 
-    // 4. /shops
+    // 4. /shops (GET & POST)
     if (endpoint === '/shops' && method === 'GET') {
-      return shops;
+      if (!this.token || !currentUser) {
+        const err = new Error('[UNAUTHORIZED] Unauthorized access to stores');
+        (err as any).isHttpError = true;
+        (err as any).status = 401;
+        throw err;
+      }
+      // Tenant Isolation: Only return shops owned by the authenticated owner
+      return shops.filter(s => s.ownerUserId === currentUser!.id);
     }
 
     if (endpoint === '/shops' && method === 'POST') {
+      if (!this.token || !currentUser) {
+        const err = new Error('[UNAUTHORIZED] Unauthorized to create store');
+        (err as any).isHttpError = true;
+        (err as any).status = 401;
+        throw err;
+      }
+      if (!body.name || !body.name.trim()) {
+        const err = new Error('[VALIDATION_ERROR] Store name is required');
+        (err as any).isHttpError = true;
+        (err as any).status = 400;
+        throw err;
+      }
       const newShop: Shop = {
-        id: 'shop_' + Math.random().toString(36).substr(2, 6),
-        ownerUserId: 'usr_owner_1',
-        name: body.name,
+        id: 'shop_' + Math.random().toString(36).substring(2, 8),
+        ownerUserId: currentUser.id,
+        name: body.name.trim(),
         timezone: body.timezone || 'Asia/Kolkata',
         status: 'ACTIVE',
-        occupancyBaseline: Number(body.occupancyBaseline) || 0,
+        occupancyBaseline: Math.max(0, Number(body.occupancyBaseline) || 0),
         createdAt: new Date().toISOString()
       };
       shops.push(newShop);
@@ -363,39 +464,42 @@ class ApiClient {
       return newShop;
     }
 
-    // 5. /shops/:shopId
-    const shopMatch = endpoint.match(/^\/shops\/([^/]+)$/);
+    // 5. /shops/:shopId (GET & PATCH)
+    const shopMatch = endpoint.match(/^\/shops\/([^/?]+)(?:\?.*)?$/);
     if (shopMatch) {
       const shopId = shopMatch[1];
-      const found = shops.find(s => s.id === shopId);
-      if (!found) throw new Error('Shop not found');
+      const found = verifyShopOwnership(shopId);
 
       if (method === 'PATCH') {
-        if (body.name) found.name = body.name;
+        if (body.name) found.name = body.name.trim();
         if (body.timezone) found.timezone = body.timezone;
-        if (body.occupancyBaseline !== undefined) found.occupancyBaseline = Number(body.occupancyBaseline);
+        if (body.occupancyBaseline !== undefined) {
+          found.occupancyBaseline = Math.max(0, Number(body.occupancyBaseline) || 0);
+        }
         found.updatedAt = new Date().toISOString();
         this.setItem('dbi_mock_shops', JSON.stringify(shops));
       }
       return found;
     }
 
-    // 6. /shops/:shopId/cameras
-    const shopCamerasMatch = endpoint.match(/^\/shops\/([^/]+)\/cameras$/);
+    // 6. /shops/:shopId/cameras (GET & POST)
+    const shopCamerasMatch = endpoint.match(/^\/shops\/([^/?]+)\/cameras(?:\?.*)?$/);
     if (shopCamerasMatch) {
       const shopId = shopCamerasMatch[1];
+      verifyShopOwnership(shopId);
+
       if (method === 'GET') {
         return cameras.filter(c => c.shopId === shopId);
       }
       if (method === 'POST') {
         const newCam: Camera = {
-          id: 'cam_' + Math.random().toString(36).substr(2, 6),
+          id: 'cam_' + Math.random().toString(36).substring(2, 8),
           shopId,
-          name: body.name,
+          name: body.name?.trim() || 'Entrance Camera',
           connectionType: body.connectionType || 'RTSP',
-          status: 'CONNECTING',
+          status: body.connectionType === 'MOCK_STREAM' ? 'DEGRADED' : 'CONNECTING',
           lastHeartbeatAt: new Date().toISOString(),
-          safeErrorCode: null,
+          safeErrorCode: body.connectionType === 'MOCK_STREAM' ? 'DEMO_CLIP_ACTIVE' : null,
           rtspUrlMasked: maskRtspUrl(body.rtspUrl || 'rtsp://mock-camera/live'),
           createdAt: new Date().toISOString()
         };
@@ -405,40 +509,84 @@ class ApiClient {
       }
     }
 
-    // 7. /cameras/:cameraId/test
-    const camTestMatch = endpoint.match(/^\/cameras\/([^/]+)\/test$/);
+    // 7. /shops/:shopId/cameras/:cameraId or /cameras/:cameraId (PATCH - Edit Camera)
+    const patchCamMatch = endpoint.match(/^(?:\/shops\/([^/?]+))?\/cameras\/([^/?]+)(?:\?.*)?$/);
+    if (patchCamMatch && method === 'PATCH') {
+      const shopId = patchCamMatch[1];
+      const cameraId = patchCamMatch[2];
+      const cam = cameras.find(c => c.id === cameraId);
+      if (!cam) {
+        const err = new Error(`[NOT_FOUND] Camera ${cameraId} not found`);
+        (err as any).isHttpError = true;
+        (err as any).status = 404;
+        throw err;
+      }
+      if (shopId) {
+        verifyShopOwnership(shopId);
+      } else {
+        verifyShopOwnership(cam.shopId);
+      }
+
+      if (body.name) cam.name = body.name.trim();
+      if (body.connectionType) {
+        cam.connectionType = body.connectionType;
+        if (body.connectionType === 'MOCK_STREAM') {
+          cam.status = 'DEGRADED';
+          cam.safeErrorCode = 'DEMO_CLIP_ACTIVE';
+        }
+      }
+      if (body.rtspUrl) {
+        cam.rtspUrlMasked = maskRtspUrl(body.rtspUrl);
+      }
+      cam.updatedAt = new Date().toISOString();
+      this.setItem('dbi_mock_cameras', JSON.stringify(cameras));
+      return cam;
+    }
+
+    // 8. /cameras/:cameraId/test (POST)
+    const camTestMatch = endpoint.match(/^\/cameras\/([^/?]+)\/test(?:\?.*)?$/);
     if (camTestMatch && method === 'POST') {
       const cameraId = camTestMatch[1];
       const cam = cameras.find(c => c.id === cameraId);
+      if (cam) {
+        verifyShopOwnership(cam.shopId);
+      }
+      const isMockStream = cam?.connectionType === 'MOCK_STREAM';
       const isReachable = true;
-      const status = isReachable ? 'ONLINE' : 'CONFIG_ERROR';
+      // Per spec: if real camera or AI worker unavailable, label DEMO/DEGRADED; never falsely display LIVE
+      const status: CameraStatus = isMockStream ? 'DEGRADED' : 'ONLINE';
       if (cam) {
         cam.status = status;
         cam.lastHeartbeatAt = new Date().toISOString();
-        cam.safeErrorCode = isReachable ? null : 'STREAM_TIMEOUT';
+        cam.safeErrorCode = isMockStream ? 'DEMO_CLIP_ACTIVE' : null;
         this.setItem('dbi_mock_cameras', JSON.stringify(cameras));
       }
       return {
         cameraId,
         status,
         isReachable,
-        safeErrorCode: isReachable ? null : 'STREAM_TIMEOUT',
-        message: isReachable ? 'RTSP handshake and frame grab verified successfully' : 'Could not reach RTSP stream',
+        safeErrorCode: isMockStream ? 'DEMO_CLIP_ACTIVE' : null,
+        message: isMockStream
+          ? 'DEMO test clip stream verified (synthetic test frames)'
+          : 'RTSP handshake and frame grab verified successfully',
         testedAt: new Date().toISOString()
       };
     }
 
-    // 8. /cameras/:cameraId/counting-line
-    const lineMatch = endpoint.match(/^\/cameras\/([^/]+)\/counting-line$/);
+    // 9. /cameras/:cameraId/counting-line (GET & PUT)
+    const lineMatch = endpoint.match(/^\/cameras\/([^/?]+)\/counting-line(?:\?.*)?$/);
     if (lineMatch) {
       const cameraId = lineMatch[1];
+      const cam = cameras.find(c => c.id === cameraId);
+      if (cam) {
+        verifyShopOwnership(cam.shopId);
+      }
       if (method === 'GET') {
         return lines[cameraId] || null;
       }
       if (method === 'PUT') {
-        const cam = cameras.find(c => c.id === cameraId);
         const updatedLine: CountingLine = {
-          id: lines[cameraId]?.id || 'line_' + Math.random().toString(36).substr(2, 6),
+          id: lines[cameraId]?.id || 'line_' + Math.random().toString(36).substring(2, 8),
           shopId: cam?.shopId || 'shop_001',
           cameraId,
           coordinates: body.coordinates,
@@ -453,14 +601,15 @@ class ApiClient {
       }
     }
 
-    // 9. /shops/:shopId/footfall/summary
-    const summaryMatch = endpoint.match(/^\/shops\/([^/]+)\/footfall\/summary/);
+    // 10. /shops/:shopId/footfall/summary
+    const summaryMatch = endpoint.match(/^\/shops\/([^/?]+)\/footfall\/summary/);
     if (summaryMatch) {
       const shopId = summaryMatch[1];
-      const shop = shops.find(s => s.id === shopId);
-      const baseline = baselineOverrides[shopId] ?? (shop?.occupancyBaseline || 0);
+      const shop = verifyShopOwnership(shopId);
+      const baseline = baselineOverrides[shopId] ?? (shop.occupancyBaseline || 0);
       const entries = 248;
       const exits = 184;
+      // Counting formula: baseline + entries - exits
       const estimatedOccupancy = Math.max(0, baseline + entries - exits);
 
       return {
@@ -470,16 +619,26 @@ class ApiClient {
         exits,
         estimatedOccupancy,
         occupancyBaseline: baseline,
-        dataSource: 'DEMO', // As specified: DEMO label if no live video pipeline
+        dataSource: 'DEMO', // As mandated: DEMO label if no live video pipeline
         quality: 'OK'
       } as FootfallSummary;
     }
 
-    // 10. /shops/:shopId/footfall/timeseries
-    const timeseriesMatch = endpoint.match(/^\/shops\/([^/]+)\/footfall\/timeseries/);
+    // 11. /shops/:shopId/footfall/timeseries
+    const timeseriesMatch = endpoint.match(/^\/shops\/([^/?]+)\/footfall\/timeseries/);
     if (timeseriesMatch) {
       const shopId = timeseriesMatch[1];
+      verifyShopOwnership(shopId);
+
+      const urlParams = new URLSearchParams(endpoint.split('?')[1] || '');
+      const queryDate = urlParams.get('date') || new Date().toISOString().split('T')[0];
       const today = new Date().toISOString().split('T')[0];
+
+      // If querying another date with no events recorded, return empty array
+      if (queryDate !== today && queryDate !== '2026-10-15') {
+        return [];
+      }
+
       const hours = [
         { h: '08:00', in: 12, out: 4 },
         { h: '09:00', in: 28, out: 14 },
@@ -495,7 +654,7 @@ class ApiClient {
       return hours.map(item => {
         runningOcc += (item.in - item.out);
         return {
-          bucketStartUtc: `${today}T${item.h}:00Z`,
+          bucketStartUtc: `${queryDate}T${item.h}:00Z`,
           bucketType: 'HOUR',
           entries: item.in,
           exits: item.out,
@@ -504,26 +663,38 @@ class ApiClient {
       });
     }
 
-    // 11. /shops/:shopId/footfall/export.csv
-    const csvMatch = endpoint.match(/^\/shops\/([^/]+)\/footfall\/export\.csv/);
+    // 12. /shops/:shopId/footfall/export.csv
+    const csvMatch = endpoint.match(/^\/shops\/([^/?]+)\/footfall\/export\.csv/);
     if (csvMatch) {
+      const shopId = csvMatch[1];
+      verifyShopOwnership(shopId);
+
+      const urlParams = new URLSearchParams(endpoint.split('?')[1] || '');
+      const exportDate = urlParams.get('date') || new Date().toISOString().split('T')[0];
       const today = new Date().toISOString().split('T')[0];
+
+      if (exportDate !== today && exportDate !== '2026-10-15') {
+        // Return CSV header with 0 rows for empty results
+        return `Date,Hour,Entries,Exits,EstimatedOccupancy,Quality,DataSource\n`;
+      }
+
       return `Date,Hour,Entries,Exits,EstimatedOccupancy,Quality,DataSource\n` +
-        `${today},08:00,12,4,8,OK,DEMO\n` +
-        `${today},09:00,28,14,22,OK,DEMO\n` +
-        `${today},10:00,34,20,36,OK,DEMO\n` +
-        `${today},11:00,42,30,48,OK,DEMO\n` +
-        `${today},12:00,38,35,51,OK,DEMO\n` +
-        `${today},13:00,30,28,53,OK,DEMO\n` +
-        `${today},14:00,24,22,55,OK,DEMO\n` +
-        `${today},15:00,40,31,64,OK,DEMO\n`;
+        `${exportDate},08:00,12,4,8,OK,DEMO\n` +
+        `${exportDate},09:00,28,14,22,OK,DEMO\n` +
+        `${exportDate},10:00,34,20,36,OK,DEMO\n` +
+        `${exportDate},11:00,42,30,48,OK,DEMO\n` +
+        `${exportDate},12:00,38,35,51,OK,DEMO\n` +
+        `${exportDate},13:00,30,28,53,OK,DEMO\n` +
+        `${exportDate},14:00,24,22,55,OK,DEMO\n` +
+        `${exportDate},15:00,40,31,64,OK,DEMO\n`;
     }
 
-    // 12. /shops/:shopId/footfall/occupancy-baseline
-    const baselineMatch = endpoint.match(/^\/shops\/([^/]+)\/footfall\/occupancy-baseline/);
+    // 13. /shops/:shopId/footfall/occupancy-baseline
+    const baselineMatch = endpoint.match(/^\/shops\/([^/?]+)\/footfall\/occupancy-baseline/);
     if (baselineMatch && method === 'POST') {
       const shopId = baselineMatch[1];
-      const newOccupancy = Number(body.newOccupancy ?? body.baseline ?? 0);
+      verifyShopOwnership(shopId);
+      const newOccupancy = Math.max(0, Number(body.newOccupancy ?? body.baseline ?? 0));
       baselineOverrides[shopId] = newOccupancy;
       this.setItem('dbi_mock_baselines', JSON.stringify(baselineOverrides));
       return { success: true, estimatedOccupancy: newOccupancy };
