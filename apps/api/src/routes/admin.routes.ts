@@ -7,13 +7,8 @@ import { AuditLogModel } from '../models/AuditLog.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middleware/auth.js';
 import { 
-  AdminOverviewResponseData, 
-  AdminShopItem, 
-  AdminCameraHealthItem, 
   UpdateShopStatusRequest, 
-  Shop, 
-  AuditLog, 
-  PaginatedResult 
+  Shop 
 } from '@dbi/shared-types';
 
 export const adminRouter = Router();
@@ -24,7 +19,7 @@ adminRouter.use(requireRole('SUPER_ADMIN'));
 
 /**
  * GET /api/v1/admin/overview
- * Platform-wide KPI overview metrics
+ * Platform-wide KPI overview metrics + Worker health
  */
 adminRouter.get('/overview', async (_req: AuthenticatedRequest, res: Response) => {
   try {
@@ -34,6 +29,17 @@ adminRouter.get('/overview', async (_req: AuthenticatedRequest, res: Response) =
     const totalOwners = await UserModel.countDocuments({ role: 'SHOP_OWNER' });
     const totalCameras = await CameraModel.countDocuments();
     const onlineCameras = await CameraModel.countDocuments({ status: 'ONLINE' });
+    const degradedCameras = await CameraModel.countDocuments({ status: { $in: ['DEGRADED', 'CONFIG_ERROR'] } });
+    const offlineCameras = await CameraModel.countDocuments({ status: 'OFFLINE' });
+
+    // Latest camera heartbeat
+    const latestCam = await CameraModel.findOne({ lastHeartbeatAt: { $ne: null } }).sort({ lastHeartbeatAt: -1 });
+    const now = Date.now();
+    const isWorkerOnline = Boolean(
+      totalCameras > 0 &&
+      latestCam?.lastHeartbeatAt &&
+      now - new Date(latestCam.lastHeartbeatAt).getTime() <= 90000
+    );
 
     // Today's total platform-wide footfall
     const todayStart = new Date();
@@ -53,19 +59,25 @@ adminRouter.get('/overview', async (_req: AuthenticatedRequest, res: Response) =
 
     const currentEstimatedOccupancy = Math.max(0, totalEntriesToday - totalExitsToday);
 
-    const overviewData: AdminOverviewResponseData = {
+    const overviewData = {
       totalShops,
       activeShops,
       suspendedShops,
       totalOwners,
       totalCameras,
       onlineCameras,
+      degradedCameras,
+      offlineCameras,
       totalEntriesToday,
       totalExitsToday,
       currentEstimatedOccupancy,
+      workerHealth: {
+        status: isWorkerOnline ? 'ONLINE' : totalCameras > 0 ? 'OFFLINE' : 'NEEDS_SETUP',
+        lastHeartbeatAt: latestCam?.lastHeartbeatAt ? latestCam.lastHeartbeatAt.toISOString() : null,
+      },
     };
 
-    sendSuccess<AdminOverviewResponseData>(res, overviewData);
+    sendSuccess(res, overviewData);
   } catch (err: any) {
     sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to fetch admin overview');
   }
@@ -73,27 +85,51 @@ adminRouter.get('/overview', async (_req: AuthenticatedRequest, res: Response) =
 
 /**
  * GET /api/v1/admin/owners
- * List registered shop owners
+ * List registered shop owners with search and pagination support
  */
-adminRouter.get('/owners', async (_req: AuthenticatedRequest, res: Response) => {
+adminRouter.get('/owners', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const owners = await UserModel.find({ role: 'SHOP_OWNER' }).sort({ createdAt: -1 });
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+    const search = ((req.query.search as string) || '').trim();
 
-    const ownerList = await Promise.all(
+    const filter: any = { role: 'SHOP_OWNER' };
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const total = await UserModel.countDocuments(filter);
+    const owners = await UserModel.find(filter)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit);
+
+    const items = await Promise.all(
       owners.map(async (u) => {
-        const shopCount = await ShopModel.countDocuments({ ownerUserId: u._id });
+        const shopsCount = await ShopModel.countDocuments({ ownerUserId: u._id });
         return {
+          _id: u._id.toString(),
           id: u._id.toString(),
           name: u.name,
           email: u.email,
           status: u.status,
-          shopCount,
+          shopsCount,
+          shopCount: shopsCount,
           createdAt: u.createdAt.toISOString(),
         };
       })
     );
 
-    sendSuccess(res, ownerList);
+    sendSuccess(res, {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    });
   } catch (err: any) {
     sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to fetch owners list');
   }
@@ -101,15 +137,34 @@ adminRouter.get('/owners', async (_req: AuthenticatedRequest, res: Response) => 
 
 /**
  * GET /api/v1/admin/shops
- * List all shops with owner details, camera counts, and current footfall
+ * List all shops with owner details, camera counts, search, and pagination
  */
-adminRouter.get('/shops', async (_req: AuthenticatedRequest, res: Response) => {
+adminRouter.get('/shops', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const shops = await ShopModel.find().populate('ownerUserId').sort({ createdAt: -1 });
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+    const status = req.query.status as string;
+    const search = ((req.query.search as string) || '').trim();
+
+    const filter: any = {};
+    if (status && status !== 'ALL') {
+      filter.status = status;
+    }
+    if (search) {
+      filter.name = { $regex: search, $options: 'i' };
+    }
+
+    const total = await ShopModel.countDocuments(filter);
+    const shops = await ShopModel.find(filter)
+      .populate('ownerUserId')
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit);
+
     const todayStart = new Date();
     todayStart.setUTCHours(0, 0, 0, 0);
 
-    const items: AdminShopItem[] = await Promise.all(
+    const items = await Promise.all(
       shops.map(async (s) => {
         const cameraCount = await CameraModel.countDocuments({ shopId: s._id });
         const events = await FootfallEventModel.aggregate([
@@ -126,14 +181,16 @@ adminRouter.get('/shops', async (_req: AuthenticatedRequest, res: Response) => {
 
         const baseline = s.occupancyBaseline || 0;
         const currentOccupancy = Math.max(0, baseline + todayEntries - todayExits);
-
         const ownerDoc = s.ownerUserId as any;
 
         return {
+          _id: s._id.toString(),
           id: s._id.toString(),
           name: s.name,
           status: s.status,
           timezone: s.timezone,
+          ownerName: ownerDoc?.name || 'Unknown',
+          ownerEmail: ownerDoc?.email || '',
           owner: {
             id: ownerDoc?._id?.toString() || '',
             name: ownerDoc?.name || 'Unknown',
@@ -143,12 +200,19 @@ adminRouter.get('/shops', async (_req: AuthenticatedRequest, res: Response) => {
           todayEntries,
           todayExits,
           currentOccupancy,
+          occupancy: currentOccupancy,
           createdAt: s.createdAt.toISOString(),
         };
       })
     );
 
-    sendSuccess<AdminShopItem[]>(res, items);
+    sendSuccess(res, {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    });
   } catch (err: any) {
     sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to fetch admin shops list');
   }
@@ -201,7 +265,10 @@ adminRouter.patch('/shops/:shopId/status', async (req: AuthenticatedRequest, res
       requestId,
     });
 
-    sendSuccess<Shop>(res, shop.toResponseObject());
+    const responseShop: any = shop.toResponseObject();
+    responseShop._id = shop._id.toString();
+
+    sendSuccess<Shop>(res, responseShop);
   } catch (err: any) {
     sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to update shop status');
   }
@@ -215,21 +282,26 @@ adminRouter.get('/cameras/health', async (_req: AuthenticatedRequest, res: Respo
   try {
     const cameras = await CameraModel.find().populate('shopId').sort({ lastHeartbeatAt: -1 });
 
-    const items: AdminCameraHealthItem[] = cameras.map((c) => {
+    const items = cameras.map((c) => {
       const shopDoc = c.shopId as any;
       return {
-        cameraId: c._id.toString(),
+        _id: c._id.toString(),
+        id: c._id.toString(),
+        name: c.name,
         cameraName: c.name,
         shopId: shopDoc?._id?.toString() || '',
-        shopName: shopDoc?.name || 'Unknown',
+        shopName: shopDoc?.name || 'Unknown Shop',
         status: c.status,
-        connectionType: c.connectionType,
-        lastHeartbeatAt: c.lastHeartbeatAt ? c.lastHeartbeatAt.toISOString() : undefined,
-        safeErrorCode: c.safeErrorCode,
+        connectionType: c.connectionType || 'RTSP',
+        lastHeartbeatAt: c.lastHeartbeatAt ? c.lastHeartbeatAt.toISOString() : null,
+        safeErrorCode: c.safeErrorCode || null,
       };
     });
 
-    sendSuccess<AdminCameraHealthItem[]>(res, items);
+    sendSuccess(res, {
+      items,
+      total: items.length,
+    });
   } catch (err: any) {
     sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to fetch camera health list');
   }
@@ -241,8 +313,8 @@ adminRouter.get('/cameras/health', async (_req: AuthenticatedRequest, res: Respo
  */
 adminRouter.get('/audit-logs', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page as string || '1', 10));
-    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string || '20', 10)));
+    const page = Math.max(1, parseInt((req.query.page as string) || '1', 10));
+    const limit = Math.max(1, Math.min(100, parseInt((req.query.limit as string) || '20', 10)));
     const skip = (page - 1) * limit;
 
     const [logs, total] = await Promise.all([
@@ -250,15 +322,27 @@ adminRouter.get('/audit-logs', async (req: AuthenticatedRequest, res: Response) 
       AuditLogModel.countDocuments(),
     ]);
 
-    const result: PaginatedResult<AuditLog> = {
-      items: logs.map((l) => l.toResponseObject()),
+    const items = logs.map((l) => ({
+      _id: l._id.toString(),
+      id: l._id.toString(),
+      createdAt: l.createdAt.toISOString(),
+      requestId: l.requestId,
+      actorEmail: l.actor.email,
+      actor: l.actor,
+      action: l.action,
+      target: l.target,
+      reason: l.reason || 'N/A',
+      status: 'SUCCESS' as const,
+    }));
+
+    sendSuccess(res, {
+      items,
       total,
       page,
       limit,
+      totalPages: Math.ceil(total / limit) || 1,
       hasMore: skip + logs.length < total,
-    };
-
-    sendSuccess<PaginatedResult<AuditLog>>(res, result);
+    });
   } catch (err: any) {
     sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to fetch audit logs');
   }
