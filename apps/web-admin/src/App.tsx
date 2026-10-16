@@ -5,7 +5,6 @@ import {
   FileText, 
   LayoutDashboard, 
   LogOut, 
-  ShieldAlert, 
   Users 
 } from 'lucide-react';
 import { TabKey } from './types';
@@ -30,52 +29,82 @@ export default function App() {
     return <LoginPage onLoginSuccess={(loggedUser) => setUser(loggedUser)} />;
   }
 
+  const navItems: { key: TabKey; label: string; icon: any }[] = [
+    { key: 'overview', label: 'Overview', icon: LayoutDashboard },
+    { key: 'shops', label: 'Shops', icon: Building2 },
+    { key: 'owners', label: 'Shop Owners', icon: Users },
+    { key: 'cameras', label: 'Camera Health', icon: Camera },
+    { key: 'audit-logs', label: 'Audit Logs', icon: FileText },
+  ];
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row">
-      <aside className="w-full md:w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between p-4 flex-shrink-0">
-        <div className="space-y-6">
-          <div className="flex items-center gap-3 px-2">
-            <ShieldAlert className="w-6 h-6 text-amber-500 flex-shrink-0" />
+    <div className="flex h-screen bg-slate-50 text-slate-800 font-sans">
+      {/* Light Sidebar */}
+      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col justify-between shadow-sm flex-shrink-0">
+        <div>
+          {/* Logo & Brand Header */}
+          <div className="p-4 border-b border-slate-100 flex items-center gap-3">
+            <img 
+              src="/logo.jpeg" 
+              alt="DBI Intelligence Logo" 
+              className="w-10 h-10 object-contain rounded-md border border-slate-100 shadow-xs" 
+            />
             <div>
-              <span className="font-bold tracking-wide text-sm block">DBI INTELLIGENCE</span>
-              <span className="text-[10px] text-amber-500 font-semibold tracking-wider uppercase">Super Admin</span>
+              <h1 className="font-bold text-sm tracking-wide text-slate-900 leading-tight">DBI INTELLIGENCE</h1>
+              <span className="text-[10px] uppercase font-semibold tracking-wider text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 inline-block mt-0.5">
+                SUPER ADMIN
+              </span>
             </div>
           </div>
-          <nav className="space-y-1">
-            <button onClick={() => setTab('overview')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-sm transition ${tab === 'overview' ? 'bg-amber-600 text-white font-medium' : 'hover:bg-slate-800 text-slate-400'}`}>
-              <LayoutDashboard className="w-4 h-4" /> Overview
-            </button>
-            <button onClick={() => setTab('shops')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-sm transition ${tab === 'shops' ? 'bg-amber-600 text-white font-medium' : 'hover:bg-slate-800 text-slate-400'}`}>
-              <Building2 className="w-4 h-4" /> Shops
-            </button>
-            <button onClick={() => setTab('owners')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-sm transition ${tab === 'owners' ? 'bg-amber-600 text-white font-medium' : 'hover:bg-slate-800 text-slate-400'}`}>
-              <Users className="w-4 h-4" /> Shop Owners
-            </button>
-            <button onClick={() => setTab('cameras')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-sm transition ${tab === 'cameras' ? 'bg-amber-600 text-white font-medium' : 'hover:bg-slate-800 text-slate-400'}`}>
-              <Camera className="w-4 h-4" /> Camera Health
-            </button>
-            <button onClick={() => setTab('audit')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-sm transition ${tab === 'audit' ? 'bg-amber-600 text-white font-medium' : 'hover:bg-slate-800 text-slate-400'}`}>
-              <FileText className="w-4 h-4" /> Audit Logs
-            </button>
+
+          {/* Navigation Links */}
+          <nav className="p-3 space-y-1">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = tab === item.key;
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => setTab(item.key)}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-semibold transition text-left ${
+                    isActive
+                      ? 'bg-amber-500 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
           </nav>
         </div>
-        <div className="border-t border-slate-800 pt-4 flex items-center justify-between px-2 mt-4 md:mt-0">
-          <div className="truncate max-w-[140px]">
-            <p className="text-xs font-medium text-slate-200">{user.email}</p>
-            <p className="text-[10px] text-emerald-400">SUPER_ADMIN</p>
+
+        {/* Footer Admin Bar */}
+        <div className="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <div className="truncate pr-2">
+            <div className="text-xs font-semibold text-slate-800 truncate">{user?.email || 'admin@dbi.ai'}</div>
+            <div className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">{user?.role || 'SUPER_ADMIN'}</div>
           </div>
-          <button onClick={handleLogout} title="Logout" className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded">
+          <button
+            onClick={handleLogout}
+            title="Sign Out"
+            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
+          >
             <LogOut className="w-4 h-4" />
           </button>
         </div>
       </aside>
 
-      <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
-        {tab === 'overview' && <OverviewPage />}
-        {tab === 'shops' && <ShopsPage />}
-        {tab === 'owners' && <OwnersPage />}
-        {tab === 'cameras' && <CamerasPage />}
-        {tab === 'audit' && <AuditLogsPage />}
+      {/* Light Main Content Area */}
+      <main className="flex-1 overflow-y-auto p-8 bg-slate-50">
+        <div className="max-w-7xl mx-auto">
+          {tab === 'overview' && <OverviewPage />}
+          {tab === 'shops' && <ShopsPage />}
+          {tab === 'owners' && <OwnersPage />}
+          {tab === 'cameras' && <CamerasPage />}
+          {tab === 'audit-logs' && <AuditLogsPage />}
+        </div>
       </main>
     </div>
   );
