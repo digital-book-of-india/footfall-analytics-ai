@@ -12,7 +12,6 @@ import {
   PlusIcon,
   ChevronDownIcon
 } from './icons';
-import { api } from '../services/apiClient';
 import { DbiLogo } from './DbiLogo';
 
 interface NavbarProps {
@@ -26,12 +25,6 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab, onOpe
   const { shops, selectedShop, selectShop } = useShop();
   const [shopDropdownOpen, setShopDropdownOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
-  const isMock = api.isForceMock();
-
-  const handleToggleMock = () => {
-    api.setForceMock(!isMock);
-    window.location.reload();
-  };
 
   return (
     <>
@@ -169,35 +162,8 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab, onOpe
               </button>
             </nav>
 
-            {/* Right section: Stream Status & User Avatar */}
+            {/* Right section: User Profile */}
             <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-              {/* Live / Mock Mode Status Pill */}
-              <button
-                type="button"
-                onClick={handleToggleMock}
-                title="Click to toggle Mock adapter vs Live API mode"
-                className={`text-[11px] sm:text-xs px-2 sm:px-3 py-1.5 rounded-xl font-semibold border flex items-center gap-1.5 transition shadow-xs whitespace-nowrap ${
-                  isMock
-                    ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100/80'
-                    : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/80'
-                }`}
-              >
-                <span className="relative flex h-2 w-2 shrink-0">
-                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                    isMock ? 'bg-amber-400' : 'bg-emerald-400'
-                  }`} />
-                  <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                    isMock ? 'bg-amber-500' : 'bg-emerald-500'
-                  }`} />
-                </span>
-                <span className="font-semibold text-[10px] sm:text-xs">
-                  {isMock ? 'Mock' : 'Live'}<span className="hidden sm:inline"> {isMock ? 'Mode' : 'API'}</span>
-                </span>
-              </button>
-
-              {/* Subtle Divider */}
-              <div className="hidden sm:block h-6 w-px bg-gray-200" />
-
               {/* User Profile */}
               <div className="relative">
                 <button

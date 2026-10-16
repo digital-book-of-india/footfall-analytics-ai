@@ -9,6 +9,7 @@ import { ShopProfilePage } from './pages/ShopProfilePage';
 import { AuthPage } from './pages/AuthPage';
 import { NewShopModal } from './components/NewShopModal';
 import { RefreshCwIcon } from './components/icons';
+import { DbiLogo } from './components/DbiLogo';
 
 const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
@@ -19,11 +20,19 @@ const AppContent: React.FC = () => {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white">
-        <RefreshCwIcon size={32} className="animate-spin text-blue-500 mb-3" />
-        <p className="text-sm font-semibold tracking-wider uppercase text-blue-200">
-          Loading Owner Portal...
-        </p>
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 via-gray-50 to-blue-50/40 flex flex-col items-center justify-center p-4 relative overflow-hidden">
+        {/* Subtle ambient light dot pattern */}
+        <div className="absolute inset-0 bg-[radial-gradient(#94a3b8_1px,transparent_1px)] [background-size:24px_24px] opacity-25" />
+        
+        <div className="bg-white p-6 sm:p-8 rounded-2xl sm:rounded-3xl shadow-xl shadow-slate-200/80 border border-gray-200/90 flex flex-col items-center max-w-[340px] sm:max-w-sm w-full relative z-10">
+          <DbiLogo size="md" />
+          <div className="mt-5 flex items-center gap-2.5 text-blue-600">
+            <RefreshCwIcon size={18} className="animate-spin text-blue-600" />
+            <p className="text-xs font-bold tracking-wider uppercase text-gray-700">
+              Loading Owner Portal...
+            </p>
+          </div>
+        </div>
       </div>
     );
   }

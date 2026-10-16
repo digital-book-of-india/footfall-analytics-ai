@@ -65,14 +65,11 @@ class ApiClient {
   constructor() {
     this.token = this.getItem('dbi_token');
     const forceMockEnv = (import.meta as any).env?.VITE_FORCE_MOCK;
-    if (forceMockEnv === 'false') {
-      this.forceMock = false;
+    // Always connect to live backend API by default in the owner portal
+    this.forceMock = forceMockEnv === 'true';
+    if (this.getItem('dbi_force_mock') === 'true' && forceMockEnv !== 'true') {
       this.setItem('dbi_force_mock', 'false');
-    } else if (forceMockEnv === 'true') {
-      this.forceMock = true;
-      this.setItem('dbi_force_mock', 'true');
-    } else {
-      this.forceMock = this.getItem('dbi_force_mock') === 'true';
+      this.forceMock = false;
     }
   }
 

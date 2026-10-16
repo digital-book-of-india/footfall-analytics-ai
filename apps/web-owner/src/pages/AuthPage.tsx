@@ -95,14 +95,14 @@ export const AuthPage: React.FC = () => {
   const displayError = validationError || error;
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center py-6 sm:py-12 px-3.5 sm:px-6 relative overflow-hidden">
-      {/* Ambient background glows */}
-      <div className="absolute inset-0 bg-[radial-gradient(#3b82f6_1px,transparent_1px)] [background-size:28px_28px] opacity-10" />
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-gradient-to-tr from-blue-600/20 to-indigo-600/10 rounded-full blur-[100px] pointer-events-none" />
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-gray-50 to-blue-50/40 flex flex-col justify-center items-center py-6 sm:py-12 px-3.5 sm:px-6 relative overflow-hidden">
+      {/* Subtle light ambient pattern & glow */}
+      <div className="absolute inset-0 bg-[radial-gradient(#94a3b8_1px,transparent_1px)] [background-size:24px_24px] opacity-25" />
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] bg-gradient-to-tr from-blue-100/60 to-indigo-100/40 rounded-full blur-[110px] pointer-events-none" />
 
       {/* Single Unified Card */}
       <div className="w-full max-w-[390px] sm:max-w-md relative z-10">
-        <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl shadow-black/50 border border-slate-800/10 p-5 sm:p-8">
+        <div className="bg-white rounded-2xl sm:rounded-3xl shadow-xl shadow-slate-200/80 border border-gray-200/90 p-5 sm:p-8">
           
           {/* Logo & Header in Card */}
           <div className="flex flex-col items-center mb-5 sm:mb-6">
@@ -272,8 +272,8 @@ export const AuthPage: React.FC = () => {
           </div>
 
           {/* Security & Multi-tenant Badge */}
-          <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-center gap-1.5 text-[11px] font-medium text-gray-400">
-            <ShieldIcon size={13} className="text-emerald-500 shrink-0" />
+          <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-center gap-1.5 text-[11px] font-medium text-gray-500">
+            <ShieldIcon size={13} className="text-emerald-600 shrink-0" />
             <span>Encrypted • Multi-Tenant Protected</span>
           </div>
 
