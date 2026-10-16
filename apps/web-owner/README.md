@@ -5,7 +5,7 @@ This application is the store owner-facing web interface for DBI Intelligence AI
 ## Primary Ownership & Deliverables
 - **Owner Authentication & Session**: Sign-in, registration, and token persistence for `SHOP_OWNER` role (`POST /auth/register`, `POST /auth/login`, `GET /auth/me`).
 - **Store Onboarding & Profile**: Create store locations, configure operational timezones, manage baseline occupancy offsets, and toggle store switcher (`POST /shops`, `GET /shops`, `PATCH /shops/:shopId`).
-- **Camera Management & Test Action**: Connect entrance cameras with secure connection types (RTSP, MOCK_STREAM, WEBCAM). Trigger stream verification diagnostics (`POST /shops/:shopId/cameras`, `GET /shops/:shopId/cameras`, `POST /cameras/:cameraId/test`).
+- **Camera Management & Test Action**: Connect entrance cameras with secure connection types (RTSP, MOCK_STREAM). Trigger stream verification diagnostics (`POST /shops/:shopId/cameras`, `GET /shops/:shopId/cameras`, `POST /cameras/:cameraId/test`).
 - **Interactive Virtual Counting Line Calibration**: Drag-and-drop / coordinate-calibrated virtual crossing line with normalized coordinates (0..1), directional indicators (IN / OUT), and active status toggle (`PUT /cameras/:cameraId/counting-line`).
 - **Footfall Analytics Dashboard**:
   - Real-time KPI cards: Today's Entries, Today's Exits, Estimated In-Store Occupancy, Baseline Offset.

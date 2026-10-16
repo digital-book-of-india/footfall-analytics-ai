@@ -478,7 +478,6 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
                 >
                   <option value="RTSP">RTSP (Standard IP Camera Stream)</option>
                   <option value="MOCK_STREAM">Mock Clip Pipeline (DEMO Mode)</option>
-                  <option value="WEBCAM">USB / Direct Video Capture</option>
                 </select>
               </div>
 
@@ -591,7 +590,6 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
                 >
                   <option value="RTSP">RTSP (Standard IP Camera Stream)</option>
                   <option value="MOCK_STREAM">Mock Clip Pipeline (DEMO Mode)</option>
-                  <option value="WEBCAM">USB / Direct Video Capture</option>
                 </select>
               </div>
 
