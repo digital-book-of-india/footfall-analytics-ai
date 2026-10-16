@@ -1,11 +1,12 @@
 import React from 'react';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import App from '../App';
 import { api } from '../services/apiClient';
 
 describe('Owner Flow End-to-End Smoke Test', () => {
   beforeEach(() => {
+    cleanup();
     localStorage.clear();
     api.setToken(null);
     api.setForceMock(true);
@@ -157,12 +158,63 @@ describe('Owner Flow End-to-End Smoke Test', () => {
 
     // Step 10: Refresh the application and verify persisted data
     unmount();
-    render(<App />);
+    const { unmount: unmount2 } = render(<App />);
 
     // Persisted session reloads directly into dashboard without sign-in prompt
     await waitFor(() => {
       expect(screen.getAllByText('Downtown Flagship Store Renamed').length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText("Today's Entries")).toBeInTheDocument();
     });
+    unmount2();
+  }, 15000);
+
+  it('allows a newly registered owner without stores to onboard their first store location', async () => {
+    const { unmount } = render(<App />);
+
+    // Switch to Register tab
+    const registerTabBtn = screen.getByRole('button', { name: /register owner/i });
+    fireEvent.click(registerTabBtn);
+
+    // Fill registration form
+    const nameInput = screen.getByPlaceholderText('e.g. Rachel Adams');
+    const emailInput = screen.getByPlaceholderText('owner@store.com');
+    const passwordInput = screen.getByPlaceholderText('••••••••');
+
+    fireEvent.change(nameInput, { target: { value: 'Sarah Connors' } });
+    fireEvent.change(emailInput, { target: { value: 'sarah@boutique.com' } });
+    fireEvent.change(passwordInput, { target: { value: 'SecurePass!99' } });
+
+    const createAccountBtn = screen.getByRole('button', { name: /create owner account/i });
+    fireEvent.click(createAccountBtn);
+
+    // Wait until store loading finishes and Welcome screen is ready
+    await waitFor(() => {
+      expect(screen.queryByText(/loading store dashboard/i)).not.toBeInTheDocument();
+      expect(screen.getByText('Welcome to DBI Footfall Analytics')).toBeInTheDocument();
+    }, { timeout: 6000 });
+
+    // Click "Create Your Store Location" to open onboarding modal
+    const createStoreBtn = await screen.findByRole('button', { name: /create your store location/i }, { timeout: 6000 });
+    fireEvent.click(createStoreBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Onboard New Store Location')).toBeInTheDocument();
+    }, { timeout: 5000 });
+
+    // Fill store details
+    const storeNameInput = screen.getByPlaceholderText('e.g. Phoenix Mall Flagship');
+    fireEvent.change(storeNameInput, { target: { value: 'Avenue Fashion Delhi' } });
+
+    const submitCreateStoreBtn = screen.getByRole('button', { name: /create store/i });
+    fireEvent.click(submitCreateStoreBtn);
+
+    // Once created, store is selected and dashboard loads with shop name
+    await waitFor(() => {
+      expect(screen.getAllByText('Avenue Fashion Delhi').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText("Today's Entries")).toBeInTheDocument();
+      expect(screen.getByText('No Cameras Configured')).toBeInTheDocument();
+    }, { timeout: 5000 });
+
+    unmount();
   }, 15000);
 });

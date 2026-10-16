@@ -6,7 +6,8 @@ import {
   AlertTriangleIcon,
   SlidersIcon,
   ClockIcon,
-  ShieldIcon
+  ShieldIcon,
+  PlusIcon
 } from '../components/icons';
 
 const TIMEZONE_OPTIONS = [
@@ -23,7 +24,11 @@ const TIMEZONE_OPTIONS = [
   'UTC'
 ];
 
-export const ShopProfilePage: React.FC = () => {
+interface ShopProfilePageProps {
+  onOpenNewShopModal?: () => void;
+}
+
+export const ShopProfilePage: React.FC<ShopProfilePageProps> = ({ onOpenNewShopModal }) => {
   const { selectedShop, updateShop, shops, selectShop, isLoading: shopLoading } = useShop();
 
   const [name, setName] = useState<string>('');
@@ -73,7 +78,17 @@ export const ShopProfilePage: React.FC = () => {
   if (!selectedShop) {
     return (
       <div className="bg-white p-8 rounded-2xl border border-gray-200 text-center">
-        <p className="text-gray-500 text-sm">Please select a store to manage settings.</p>
+        <p className="text-gray-500 text-sm mb-4">Please select or create a store to manage settings.</p>
+        {onOpenNewShopModal && (
+          <button
+            type="button"
+            onClick={onOpenNewShopModal}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-2 shadow-sm transition"
+          >
+            <PlusIcon size={16} />
+            Create Store Location
+          </button>
+        )}
       </div>
     );
   }
@@ -81,9 +96,9 @@ export const ShopProfilePage: React.FC = () => {
   return (
     <div className="max-w-4xl space-y-6">
       {/* Header */}
-      <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Store Profile & Operating Settings</h1>
-        <p className="text-sm text-gray-500 mt-1">
+      <div className="bg-white p-4 sm:p-6 rounded-2xl border border-gray-200 shadow-sm">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">Store Profile & Operating Settings</h1>
+        <p className="text-xs sm:text-sm text-gray-500 mt-1">
           Configure business metadata, baseline occupancy offsets, and operational timezone.
         </p>
       </div>
@@ -103,7 +118,7 @@ export const ShopProfilePage: React.FC = () => {
       )}
 
       {/* Main Settings Card */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 sm:p-6">
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
@@ -182,7 +197,7 @@ export const ShopProfilePage: React.FC = () => {
             <button
               type="submit"
               disabled={isSaving}
-              className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition disabled:opacity-50"
+              className="w-full sm:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition disabled:opacity-50"
             >
               {isSaving ? 'Saving Changes...' : 'Save Profile Changes'}
             </button>
@@ -191,19 +206,19 @@ export const ShopProfilePage: React.FC = () => {
       </div>
 
       {/* Other Owned Stores List */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-        <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-4">
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 sm:p-6">
+        <h3 className="text-xs sm:text-sm font-bold text-gray-900 uppercase tracking-wider mb-4">
           All Stores In Your Organization ({shops.length})
         </h3>
         <div className="divide-y divide-gray-100">
           {shops.map(shop => (
             <div
               key={shop.id}
-              className="py-3 flex items-center justify-between hover:bg-gray-50/50 px-2 rounded-xl transition"
+              className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-gray-50/50 px-2 rounded-xl transition"
             >
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 min-w-0">
                 <div
-                  className={`w-9 h-9 rounded-xl flex items-center justify-center ${
+                  className={`w-9 h-9 shrink-0 rounded-xl flex items-center justify-center ${
                     selectedShop.id === shop.id
                       ? 'bg-blue-100 text-blue-700 font-bold'
                       : 'bg-gray-100 text-gray-600'
@@ -211,21 +226,21 @@ export const ShopProfilePage: React.FC = () => {
                 >
                   <BuildingIcon size={18} />
                 </div>
-                <div>
-                  <h4 className="text-sm font-bold text-gray-900">{shop.name}</h4>
-                  <p className="text-xs text-gray-400">{shop.timezone} • Baseline: {shop.occupancyBaseline}</p>
+                <div className="min-w-0">
+                  <h4 className="text-sm font-bold text-gray-900 truncate">{shop.name}</h4>
+                  <p className="text-xs text-gray-400 truncate">{shop.timezone} • Baseline: {shop.occupancyBaseline}</p>
                 </div>
               </div>
 
               {selectedShop.id === shop.id ? (
-                <span className="px-2.5 py-1 bg-blue-50 text-blue-700 font-bold rounded-lg text-xs border border-blue-200">
+                <span className="self-start sm:self-auto px-2.5 py-1 bg-blue-50 text-blue-700 font-bold rounded-lg text-xs border border-blue-200">
                   Active Store
                 </span>
               ) : (
                 <button
                   type="button"
                   onClick={() => selectShop(shop.id)}
-                  className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold"
+                  className="self-stretch sm:self-auto px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold text-center"
                 >
                   Switch To This Store
                 </button>

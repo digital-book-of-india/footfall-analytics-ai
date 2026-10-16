@@ -114,20 +114,20 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
   const ny = dx / len;
 
   return (
-    <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden max-w-3xl w-full">
+    <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden max-w-3xl w-full my-auto flex flex-col max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-2rem)]">
       {/* Header */}
-      <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+      <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-gray-50 border-b border-gray-200 flex flex-col sm:flex-row justify-between sm:items-center gap-2.5 shrink-0">
         <div>
-          <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-            <SlidersIcon size={20} className="text-blue-600" />
-            Virtual Counting Line Calibration
+          <h3 className="text-base sm:text-lg font-bold text-gray-900 flex items-center gap-2">
+            <SlidersIcon size={20} className="text-blue-600 shrink-0" />
+            <span>Virtual Counting Line Calibration</span>
           </h3>
           <p className="text-xs text-gray-500 mt-0.5">
             Camera: <span className="font-semibold text-gray-700">{cameraName}</span> • Drag endpoints or enter normalized values (0..1)
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <label className="text-xs font-medium text-gray-700 flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-lg border border-gray-300">
+          <label className="text-xs font-semibold text-gray-700 flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-lg border border-gray-300 shadow-2xs">
             <input
               type="checkbox"
               checked={enabled}
@@ -139,13 +139,13 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
         </div>
       </div>
 
-      <div className="p-6">
+      <div className="p-3 sm:p-6 flex-1 overflow-y-auto space-y-4">
         {/* Interactive Canvas Viewport */}
         <div
           ref={containerRef}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
-          className="relative w-full aspect-video rounded-xl overflow-hidden border-2 border-gray-800 bg-gray-950 select-none shadow-inner cursor-crosshair group"
+          className="relative w-full aspect-video rounded-xl overflow-hidden border-2 border-gray-800 bg-gray-950 select-none shadow-inner cursor-crosshair group touch-none"
         >
           {/* Simulated Entrance Camera Feed Background */}
           <div className="absolute inset-0 bg-gradient-to-b from-slate-900 via-slate-800 to-zinc-900 opacity-90">
@@ -165,13 +165,13 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
           </div>
 
           {/* OSD (On Screen Display) Overlay */}
-          <div className="absolute top-3 left-3 bg-black/70 backdrop-blur px-2.5 py-1 rounded text-[11px] font-mono text-emerald-400 flex items-center gap-2 border border-emerald-500/30">
+          <div className="absolute top-2 sm:top-3 left-2 sm:left-3 bg-black/70 backdrop-blur px-2 sm:px-2.5 py-0.5 sm:py-1 rounded text-[10px] sm:text-[11px] font-mono text-emerald-400 flex items-center gap-1.5 sm:gap-2 border border-emerald-500/30">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            REC • RTSP STREAM PREVIEW • 1080p
+            REC • RTSP STREAM • 1080p
           </div>
 
-          <div className="absolute top-3 right-3 bg-black/70 backdrop-blur px-2.5 py-1 rounded text-[11px] font-mono text-amber-300 border border-amber-500/30">
-            STATUS: {enabled ? 'COUNTING_ENABLED' : 'PAUSED'}
+          <div className="absolute top-2 sm:top-3 right-2 sm:right-3 bg-black/70 backdrop-blur px-2 sm:px-2.5 py-0.5 sm:py-1 rounded text-[10px] sm:text-[11px] font-mono text-amber-300 border border-amber-500/30">
+            STATUS: {enabled ? 'ACTIVE' : 'PAUSED'}
           </div>
 
           {/* Interactive SVG Overlay */}
@@ -242,9 +242,9 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
           <div
             onPointerDown={(e) => handlePointerDown('p1', e)}
             style={{ left: `${coords.x1 * 100}%`, top: `${coords.y1 * 100}%` }}
-            className={`absolute -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-blue-600 border-2 border-white shadow-lg cursor-grab active:cursor-grabbing flex items-center justify-center text-white text-[10px] font-bold z-20 ${
+            className={`absolute -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-blue-600 border-2 border-white shadow-lg cursor-grab active:cursor-grabbing flex items-center justify-center text-white text-[11px] font-bold z-20 ${
               dragHandle === 'p1' ? 'ring-4 ring-blue-400 scale-125' : 'hover:scale-110'
-            } transition-transform`}
+            } transition-transform touch-none`}
             title="Endpoint A (x1, y1)"
           >
             A
@@ -254,9 +254,9 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
           <div
             onPointerDown={(e) => handlePointerDown('p2', e)}
             style={{ left: `${coords.x2 * 100}%`, top: `${coords.y2 * 100}%` }}
-            className={`absolute -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-indigo-600 border-2 border-white shadow-lg cursor-grab active:cursor-grabbing flex items-center justify-center text-white text-[10px] font-bold z-20 ${
+            className={`absolute -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-indigo-600 border-2 border-white shadow-lg cursor-grab active:cursor-grabbing flex items-center justify-center text-white text-[11px] font-bold z-20 ${
               dragHandle === 'p2' ? 'ring-4 ring-indigo-400 scale-125' : 'hover:scale-110'
-            } transition-transform`}
+            } transition-transform touch-none`}
             title="Endpoint B (x2, y2)"
           >
             B
@@ -264,42 +264,42 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
         </div>
 
         {/* Quick Presets */}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="text-gray-500 font-medium">Quick Presets:</span>
+        <div className="flex flex-wrap items-center justify-between gap-2.5 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <span className="text-gray-500 font-semibold text-[11px] sm:text-xs">Quick Presets:</span>
             <button
               type="button"
               onClick={() => handlePreset('horizontal')}
-              className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md font-medium"
+              className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium text-xs transition"
             >
               Horizontal Entrance
             </button>
             <button
               type="button"
               onClick={() => handlePreset('vertical')}
-              className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md font-medium"
+              className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium text-xs transition"
             >
               Vertical Turnstile
             </button>
             <button
               type="button"
               onClick={() => handlePreset('diagonal')}
-              className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md font-medium"
+              className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium text-xs transition"
             >
               Corner Entrance
             </button>
           </div>
 
-          <div className="text-gray-400">
-            Coordinates normalized: 0.00 (top-left) to 1.00 (bottom-right)
+          <div className="text-gray-400 text-[11px]">
+            Coords: 0.00 to 1.00
           </div>
         </div>
 
         {/* Precise Coordinate Inputs & Direction Configuration */}
-        <form onSubmit={handleSubmit} className="mt-5 border-t border-gray-200 pt-5 space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <form onSubmit={handleSubmit} className="border-t border-gray-200 pt-4 space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Point A X1</label>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Point A X1</label>
               <input
                 type="number"
                 min="0"
@@ -307,11 +307,11 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
                 step="0.01"
                 value={coords.x1}
                 onChange={e => setCoords({ ...coords, x1: parseFloat(e.target.value) || 0 })}
-                className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-2.5 py-2 sm:py-1.5 border border-gray-300 rounded-lg text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Point A Y1</label>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Point A Y1</label>
               <input
                 type="number"
                 min="0"
@@ -319,11 +319,11 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
                 step="0.01"
                 value={coords.y1}
                 onChange={e => setCoords({ ...coords, y1: parseFloat(e.target.value) || 0 })}
-                className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-2.5 py-2 sm:py-1.5 border border-gray-300 rounded-lg text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Point B X2</label>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Point B X2</label>
               <input
                 type="number"
                 min="0"
@@ -331,11 +331,11 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
                 step="0.01"
                 value={coords.x2}
                 onChange={e => setCoords({ ...coords, x2: parseFloat(e.target.value) || 0 })}
-                className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-2.5 py-2 sm:py-1.5 border border-gray-300 rounded-lg text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Point B Y2</label>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Point B Y2</label>
               <input
                 type="number"
                 min="0"
@@ -343,18 +343,18 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
                 step="0.01"
                 value={coords.y2}
                 onChange={e => setCoords({ ...coords, y2: parseFloat(e.target.value) || 0 })}
-                className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-2.5 py-2 sm:py-1.5 border border-gray-300 rounded-lg text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 pt-1">
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">Normal In-Direction</label>
               <select
                 value={inDir}
                 onChange={e => setInDir(e.target.value as Direction)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="IN">IN (Entering the store)</option>
                 <option value="OUT">OUT (Exiting the store)</option>
@@ -365,7 +365,7 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
               <select
                 value={outDir}
                 onChange={e => setOutDir(e.target.value as Direction)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="OUT">OUT (Exiting the store)</option>
                 <option value="IN">IN (Entering the store)</option>
@@ -380,18 +380,18 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
             </span>
           </div>
 
-          <div className="flex justify-end items-center gap-3 pt-3">
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end items-stretch sm:items-center gap-2 pt-3">
             <button
               type="button"
               onClick={onCancel}
-              className="px-4 py-2 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="w-full sm:w-auto px-4 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-xs sm:text-sm font-semibold text-gray-700 hover:bg-gray-50 transition text-center"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSaving}
-              className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold flex items-center gap-2 shadow-sm disabled:opacity-50"
+              className="w-full sm:w-auto px-5 py-2.5 sm:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 transition text-center"
             >
               {isSaving ? (
                 <>Saving Line Config...</>

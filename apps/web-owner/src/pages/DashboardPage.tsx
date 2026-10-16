@@ -13,15 +13,21 @@ import {
   CheckCircleIcon,
   CalendarIcon,
   ActivityIcon,
-  VideoIcon
+  VideoIcon,
+  PlusIcon
 } from '../components/icons';
 
 interface DashboardPageProps {
   onNavigateToCameras: () => void;
   onNavigateToReports: () => void;
+  onOpenNewShopModal?: () => void;
 }
 
-export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCameras, onNavigateToReports }) => {
+export const DashboardPage: React.FC<DashboardPageProps> = ({
+  onNavigateToCameras,
+  onNavigateToReports,
+  onOpenNewShopModal
+}) => {
   const { selectedShop, isLoading: shopLoading } = useShop();
   const [summary, setSummary] = useState<FootfallSummary | null>(null);
   const [timeseries, setTimeseries] = useState<FootfallTimeseriesPoint[]>([]);
@@ -125,6 +131,16 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
         <p className="text-gray-500 max-w-md mx-auto mb-6">
           Get started by selecting or creating your shop store to monitor real-time footfall and AI occupancy.
         </p>
+        {onOpenNewShopModal && (
+          <button
+            type="button"
+            onClick={onOpenNewShopModal}
+            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold inline-flex items-center gap-2 shadow-md hover:shadow-lg transition"
+          >
+            <PlusIcon size={18} />
+            Create Your Store Location
+          </button>
+        )}
       </div>
     );
   }
@@ -132,10 +148,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
   return (
     <div className="space-y-6">
       {/* Top Banner: Status, Title, Refresh controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-6 rounded-2xl border border-gray-200 shadow-sm">
         <div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{selectedShop.name}</h1>
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">{selectedShop.name}</h1>
             {summary && <DataSourceBadge source={summary.dataSource} />}
             {summary && <QualityBadge quality={summary.quality} />}
             {cameras.length > 0 ? (
@@ -166,16 +182,16 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
               </span>
             )}
           </div>
-          <p className="text-sm text-gray-500 mt-1 flex items-center gap-2">
+          <p className="text-xs sm:text-sm text-gray-500 mt-1.5 flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <span>Timezone: {selectedShop.timezone}</span>
             <span>•</span>
             <span>Baseline Offset: {summary?.occupancyBaseline ?? selectedShop.occupancyBaseline}</span>
             <span>•</span>
-            <span>Last updated: {lastRefreshed.toLocaleTimeString()}</span>
+            <span>Updated: {lastRefreshed.toLocaleTimeString()}</span>
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <label className="flex items-center gap-2 text-xs font-medium text-gray-600 cursor-pointer bg-gray-50 px-3 py-2 rounded-xl border border-gray-200">
             <input
               type="checkbox"
@@ -183,7 +199,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
               onChange={e => setAutoRefresh(e.target.checked)}
               className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
             />
-            <span>Auto-Refresh (15s)</span>
+            <span>Auto-Refresh</span>
           </label>
 
           <button
@@ -199,7 +215,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
           <button
             type="button"
             onClick={() => setShowResetModal(true)}
-            className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-semibold flex items-center gap-2 border border-indigo-200 transition"
+            className="flex-1 sm:flex-none justify-center px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-semibold flex items-center gap-2 border border-indigo-200 transition"
           >
             <SlidersIcon size={15} />
             Calibrate Occupancy
@@ -228,7 +244,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
       )}
 
       {/* Accuracy & Drift Notice mandated by spec */}
-      <div className="bg-blue-50/70 border border-blue-200/80 rounded-2xl p-4 text-xs text-blue-900 flex items-start gap-3">
+      <div className="bg-blue-50/70 border border-blue-200/80 rounded-2xl p-3.5 sm:p-4 text-xs text-blue-900 flex items-start gap-3">
         <ActivityIcon size={18} className="text-blue-600 shrink-0 mt-0.5" />
         <div className="flex-1">
           <span className="font-bold">MVP Footfall Tracking Formula:</span> Estimated Occupancy = Baseline + Entries − Exits.
@@ -237,13 +253,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
       </div>
 
       {/* KPI Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Entries Card */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition">
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Today&apos;s Entries</p>
-              <h3 className="text-3xl font-extrabold text-gray-900 mt-2">
+              <h3 className="text-2xl sm:text-3xl font-extrabold text-gray-900 mt-1.5 sm:mt-2">
                 {isLoading ? (
                   <span className="inline-block w-16 h-8 bg-gray-200 animate-pulse rounded"></span>
                 ) : (
@@ -251,8 +267,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
                 )}
               </h3>
             </div>
-            <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
-              <ArrowDownRightIcon size={24} />
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
+              <ArrowDownRightIcon size={22} />
             </div>
           </div>
           <p className="text-xs text-emerald-600 font-medium mt-3 flex items-center gap-1">
@@ -261,11 +277,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
         </div>
 
         {/* Exits Card */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition">
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Today&apos;s Exits</p>
-              <h3 className="text-3xl font-extrabold text-gray-900 mt-2">
+              <h3 className="text-2xl sm:text-3xl font-extrabold text-gray-900 mt-1.5 sm:mt-2">
                 {isLoading ? (
                   <span className="inline-block w-16 h-8 bg-gray-200 animate-pulse rounded"></span>
                 ) : (
@@ -273,8 +289,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
                 )}
               </h3>
             </div>
-            <div className="w-12 h-12 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center border border-rose-100">
-              <ArrowUpRightIcon size={24} />
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center border border-rose-100">
+              <ArrowUpRightIcon size={22} />
             </div>
           </div>
           <p className="text-xs text-rose-600 font-medium mt-3 flex items-center gap-1">
@@ -283,12 +299,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
         </div>
 
         {/* Estimated Occupancy Card */}
-        <div className="bg-white p-5 rounded-2xl border border-blue-200 shadow-sm hover:shadow-md transition relative overflow-hidden">
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-blue-200 shadow-sm hover:shadow-md transition relative overflow-hidden">
           <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-bl-full pointer-events-none" />
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider">Current Occupancy</p>
-              <h3 className="text-3xl font-extrabold text-blue-900 mt-2">
+              <h3 className="text-2xl sm:text-3xl font-extrabold text-blue-900 mt-1.5 sm:mt-2">
                 {isLoading ? (
                   <span className="inline-block w-16 h-8 bg-gray-200 animate-pulse rounded"></span>
                 ) : (
@@ -296,8 +312,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
                 )}
               </h3>
             </div>
-            <div className="w-12 h-12 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
-              <UsersIcon size={24} />
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
+              <UsersIcon size={22} />
             </div>
           </div>
           <p className="text-xs text-gray-500 mt-3 flex items-center justify-between">
@@ -312,11 +328,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
         </div>
 
         {/* Entrance Camera Health Card */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition">
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Entrance Camera Health</p>
-              <h3 className="text-2xl font-extrabold text-gray-900 mt-2">
+              <h3 className="text-xl sm:text-2xl font-extrabold text-gray-900 mt-1.5 sm:mt-2">
                 {isLoading ? (
                   <span className="inline-block w-16 h-8 bg-gray-200 animate-pulse rounded"></span>
                 ) : cameras.length > 0 ? (
@@ -326,8 +342,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
                 )}
               </h3>
             </div>
-            <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center border border-purple-100">
-              <VideoIcon size={24} />
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center border border-purple-100">
+              <VideoIcon size={22} />
             </div>
           </div>
           <p className="text-xs text-gray-500 mt-3 flex items-center justify-between">
@@ -347,23 +363,23 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
       </div>
 
       {/* Hourly Footfall Chart */}
-      <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      <div className="bg-white p-4 sm:p-6 rounded-2xl border border-gray-200 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
           <div>
-            <h3 className="text-lg font-bold text-gray-900">Today&apos;s Hourly Traffic Trend</h3>
+            <h3 className="text-base sm:text-lg font-bold text-gray-900">Today&apos;s Hourly Traffic Trend</h3>
             <p className="text-xs text-gray-500 mt-0.5">Entries and Exits distribution by hour</p>
           </div>
-          <div className="flex items-center gap-4 text-xs font-semibold">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs font-semibold">
             <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-sm bg-emerald-500"></span>
+              <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span>
               <span className="text-gray-600">Entries (IN)</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-sm bg-rose-400"></span>
+              <span className="w-2.5 h-2.5 rounded-sm bg-rose-400"></span>
               <span className="text-gray-600">Exits (OUT)</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-sm bg-blue-600"></span>
+              <span className="w-2.5 h-2.5 rounded-sm bg-blue-600"></span>
               <span className="text-gray-600">Est. Occupancy</span>
             </div>
           </div>
@@ -371,11 +387,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
 
         {/* Visual Chart */}
         {isLoading ? (
-          <div className="h-64 flex items-center justify-center bg-gray-50 rounded-xl">
+          <div className="h-56 sm:h-64 flex items-center justify-center bg-gray-50 rounded-xl">
             <RefreshCwIcon size={24} className="animate-spin text-gray-400" />
           </div>
         ) : timeseries.length === 0 ? (
-          <div className="h-64 flex flex-col items-center justify-center bg-gray-50 rounded-xl text-center p-6">
+          <div className="h-56 sm:h-64 flex flex-col items-center justify-center bg-gray-50 rounded-xl text-center p-4 sm:p-6">
             <CalendarIcon size={32} className="text-gray-400 mb-2" />
             <p className="text-sm font-semibold text-gray-700">No footfall traffic recorded yet for today</p>
             <p className="text-xs text-gray-500 mt-1 max-w-sm">
@@ -390,51 +406,53 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
           </div>
         ) : (
           <div className="space-y-2">
-            <div className="h-64 w-full flex items-end gap-2 sm:gap-4 pt-6 pb-2 px-2 border-b border-gray-200">
-              {timeseries.map((pt, idx) => {
-                const hourLabel = pt.bucketStartUtc.includes('T')
-                  ? pt.bucketStartUtc.split('T')[1].slice(0, 5)
-                  : `${idx}:00`;
-                const inHeight = Math.round((pt.entries / maxTraffic) * 100);
-                const outHeight = Math.round((pt.exits / maxTraffic) * 100);
+            <div className="overflow-x-auto pb-2 -mx-2 sm:mx-0 px-2 sm:px-0">
+              <div className="h-56 sm:h-64 min-w-[560px] sm:min-w-0 w-full flex items-end gap-2 sm:gap-4 pt-6 pb-2 px-2 border-b border-gray-200">
+                {timeseries.map((pt, idx) => {
+                  const hourLabel = pt.bucketStartUtc.includes('T')
+                    ? pt.bucketStartUtc.split('T')[1].slice(0, 5)
+                    : `${idx}:00`;
+                  const inHeight = Math.round((pt.entries / maxTraffic) * 100);
+                  const outHeight = Math.round((pt.exits / maxTraffic) * 100);
 
-                return (
-                  <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end group relative">
-                    {/* Tooltip on hover */}
-                    <div className="absolute -top-14 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-[11px] rounded-lg py-1 px-2 pointer-events-none whitespace-nowrap z-20 shadow-lg">
-                      <p className="font-bold">{hourLabel}</p>
-                      <p className="text-emerald-400">IN: {pt.entries}</p>
-                      <p className="text-rose-400">OUT: {pt.exits}</p>
-                      {pt.estimatedOccupancy !== undefined && (
-                        <p className="text-blue-300">Occupancy: {pt.estimatedOccupancy}</p>
-                      )}
-                    </div>
+                  return (
+                    <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end group relative">
+                      {/* Tooltip on hover */}
+                      <div className="absolute -top-14 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-[11px] rounded-lg py-1 px-2 pointer-events-none whitespace-nowrap z-20 shadow-lg">
+                        <p className="font-bold">{hourLabel}</p>
+                        <p className="text-emerald-400">IN: {pt.entries}</p>
+                        <p className="text-rose-400">OUT: {pt.exits}</p>
+                        {pt.estimatedOccupancy !== undefined && (
+                          <p className="text-blue-300">Occupancy: {pt.estimatedOccupancy}</p>
+                        )}
+                      </div>
 
-                    {/* Bars pair */}
-                    <div className="w-full flex items-end justify-center gap-1 h-full">
-                      {/* IN bar */}
-                      <div
-                        style={{ height: `${Math.max(inHeight, 4)}%` }}
-                        className="w-1/2 max-w-[20px] bg-emerald-500 rounded-t-sm hover:bg-emerald-600 transition-all duration-300"
-                      />
-                      {/* OUT bar */}
-                      <div
-                        style={{ height: `${Math.max(outHeight, 4)}%` }}
-                        className="w-1/2 max-w-[20px] bg-rose-400 rounded-t-sm hover:bg-rose-500 transition-all duration-300"
-                      />
+                      {/* Bars pair */}
+                      <div className="w-full flex items-end justify-center gap-1 h-full">
+                        {/* IN bar */}
+                        <div
+                          style={{ height: `${Math.max(inHeight, 4)}%` }}
+                          className="w-1/2 max-w-[20px] bg-emerald-500 rounded-t-sm hover:bg-emerald-600 transition-all duration-300"
+                        />
+                        {/* OUT bar */}
+                        <div
+                          style={{ height: `${Math.max(outHeight, 4)}%` }}
+                          className="w-1/2 max-w-[20px] bg-rose-400 rounded-t-sm hover:bg-rose-500 transition-all duration-300"
+                        />
+                      </div>
+                      {/* X-axis label */}
+                      <span className="text-[10px] text-gray-500 mt-2 font-mono">{hourLabel}</span>
                     </div>
-                    {/* X-axis label */}
-                    <span className="text-[10px] text-gray-500 mt-2 font-mono">{hourLabel}</span>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-            <div className="flex justify-between items-center text-xs text-gray-400 pt-1">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center text-xs text-gray-400 pt-1 gap-1">
               <span>08:00 Store Opening</span>
               <button
                 type="button"
                 onClick={onNavigateToReports}
-                className="text-blue-600 hover:underline font-semibold"
+                className="text-blue-600 hover:underline font-semibold text-left sm:text-right"
               >
                 View Detailed Hourly Table & Export CSV →
               </button>
@@ -484,13 +502,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
 
       {/* Recalibration / Reset Occupancy Modal */}
       {showResetModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-gray-200">
-            <div className="flex justify-between items-start mb-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-4 sm:p-6 border border-gray-200 my-auto flex flex-col max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] overflow-y-auto">
+            <div className="flex justify-between items-start mb-4 shrink-0">
               <div>
-                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                  <SlidersIcon size={20} className="text-indigo-600" />
-                  Calibrate Estimated Occupancy
+                <h3 className="text-base sm:text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <SlidersIcon size={20} className="text-indigo-600 shrink-0" />
+                  <span>Calibrate Estimated Occupancy</span>
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
                   Reset current customer count to reconcile with manual in-store count.
@@ -499,20 +517,21 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
               <button
                 type="button"
                 onClick={() => setShowResetModal(false)}
-                className="text-gray-400 hover:text-gray-600 text-lg font-bold"
+                className="min-w-[36px] min-h-[36px] flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg text-lg font-bold ml-2 transition"
+                aria-label="Close modal"
               >
                 ✕
               </button>
             </div>
 
             {resetFeedback && (
-              <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
+              <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2 shrink-0">
                 <CheckCircleIcon size={16} />
                 <span>{resetFeedback}</span>
               </div>
             )}
 
-            <form onSubmit={handleResetOccupancy} className="space-y-4">
+            <form onSubmit={handleResetOccupancy} className="space-y-4 flex-1">
               <div>
                 <label htmlFor="calibrate-occupancy-input" className="block text-xs font-semibold text-gray-700 mb-1">
                   Current Actual In-Store Occupancy
@@ -524,7 +543,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
                   required
                   value={resetValue}
                   onChange={e => setResetValue(parseInt(e.target.value) || 0)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-base font-bold text-gray-900 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-base font-bold text-gray-900 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="text-[11px] text-gray-500 mt-1">
                   This will adjust the estimated occupancy baseline for {selectedShop.name}.
@@ -540,23 +559,23 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigateToCamera
                   type="text"
                   value={resetReason}
                   onChange={e => setResetReason(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-xs focus:ring-blue-500 focus:border-blue-500"
                   placeholder="e.g. End of shift physical headcount"
                 />
               </div>
 
-              <div className="flex justify-end items-center gap-2 pt-2">
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end items-stretch sm:items-center gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowResetModal(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  className="w-full sm:w-auto px-4 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50 transition text-center"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isResetting}
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50"
+                  className="w-full sm:w-auto px-5 py-2.5 sm:py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 transition text-center"
                 >
                   {isResetting ? 'Saving Calibration...' : 'Confirm Calibration'}
                 </button>

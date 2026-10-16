@@ -588,7 +588,7 @@ class ApiClient {
           cam.safeErrorCode = 'DEMO_CLIP_ACTIVE';
         }
       }
-      if (body.rtspUrl) {
+      if (body.rtspUrl && !body.rtspUrl.includes('****')) {
         cam.rtspUrlMasked = maskRtspUrl(body.rtspUrl);
       }
       cam.updatedAt = new Date().toISOString();

@@ -16,7 +16,11 @@ import {
   RadioIcon
 } from '../components/icons';
 
-export const CameraManagementPage: React.FC = () => {
+interface CameraManagementPageProps {
+  onOpenNewShopModal?: () => void;
+}
+
+export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOpenNewShopModal }) => {
   const { selectedShop, isLoading: shopLoading } = useShop();
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -102,9 +106,12 @@ export const CameraManagementPage: React.FC = () => {
     setError(null);
     try {
       // Send raw RTSP or composite URL to backend, but never log it directly
-      let finalUrl = newRtspUrl;
-      if (newUsername && newPassword && newRtspUrl.startsWith('rtsp://')) {
-        const withoutScheme = newRtspUrl.replace('rtsp://', '');
+      let finalUrl = newRtspUrl.trim();
+      if (!finalUrl && newConnectionType === 'MOCK_STREAM') {
+        finalUrl = 'rtsp://demo-stream/test-clip.mp4';
+      }
+      if (newUsername && newPassword && finalUrl.startsWith('rtsp://')) {
+        const withoutScheme = finalUrl.replace('rtsp://', '');
         finalUrl = `rtsp://${encodeURIComponent(newUsername)}:${encodeURIComponent(newPassword)}@${withoutScheme}`;
       }
 
@@ -189,7 +196,17 @@ export const CameraManagementPage: React.FC = () => {
   if (!selectedShop) {
     return (
       <div className="bg-white p-8 rounded-2xl border border-gray-200 text-center">
-        <p className="text-gray-500 text-sm">Please select a store to manage entrance cameras.</p>
+        <p className="text-gray-500 text-sm mb-4">Please select or create a store to manage entrance cameras.</p>
+        {onOpenNewShopModal && (
+          <button
+            type="button"
+            onClick={onOpenNewShopModal}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-2 shadow-sm transition"
+          >
+            <PlusIcon size={16} />
+            Create Store Location
+          </button>
+        )}
       </div>
     );
   }
@@ -197,15 +214,15 @@ export const CameraManagementPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-6 rounded-2xl border border-gray-200 shadow-sm">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Entrance Cameras & AI Counting Lines</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">Entrance Cameras & AI Counting Lines</h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-1">
             Configure entrance video streams and calibrate virtual crossing lines for {selectedShop.name}.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           <button
             type="button"
             onClick={fetchCameras}
@@ -219,7 +236,7 @@ export const CameraManagementPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setShowAddModal(true)}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-sm transition"
+            className="flex-1 sm:flex-none justify-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-sm transition"
           >
             <PlusIcon size={16} />
             Add Camera
@@ -374,12 +391,12 @@ export const CameraManagementPage: React.FC = () => {
                 </div>
 
                 {/* Actions Footer */}
-                <div className="p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-end gap-2 flex-wrap">
+                <div className="p-3.5 sm:p-4 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => handleTestCamera(camera.id)}
                     disabled={isTesting}
-                    className="px-3.5 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
+                    className="w-full sm:w-auto justify-center px-3.5 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
                   >
                     <RefreshCwIcon size={14} className={isTesting ? 'animate-spin' : ''} />
                     {isTesting ? 'Testing Stream...' : 'Test Connection'}
@@ -388,7 +405,7 @@ export const CameraManagementPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleOpenEditCamera(camera)}
-                    className="px-3.5 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+                    className="w-full sm:w-auto justify-center px-3.5 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
                   >
                     <SlidersIcon size={14} />
                     Edit Stream
@@ -397,7 +414,7 @@ export const CameraManagementPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleOpenCountingLine(camera)}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                    className="w-full sm:w-auto justify-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
                   >
                     <SlidersIcon size={14} />
                     Configure Counting Line
@@ -411,13 +428,13 @@ export const CameraManagementPage: React.FC = () => {
 
       {/* Add Camera Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-gray-200">
-            <div className="flex justify-between items-start mb-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-4 sm:p-6 border border-gray-200 my-auto flex flex-col max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] overflow-y-auto">
+            <div className="flex justify-between items-start mb-4 shrink-0">
               <div>
-                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                  <VideoIcon size={20} className="text-blue-600" />
-                  Register Entrance Camera
+                <h3 className="text-base sm:text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <VideoIcon size={20} className="text-blue-600 shrink-0" />
+                  <span>Register Entrance Camera</span>
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
                   Connect a camera stream located at the entrance doorway.
@@ -426,13 +443,14 @@ export const CameraManagementPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowAddModal(false)}
-                className="text-gray-400 hover:text-gray-600 text-lg font-bold"
+                className="min-w-[36px] min-h-[36px] flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg text-lg font-bold ml-2 transition"
+                aria-label="Close modal"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleAddCamera} className="space-y-4">
+            <form onSubmit={handleAddCamera} className="space-y-4 flex-1">
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1">Camera Label / Name</label>
                 <input
@@ -441,7 +459,7 @@ export const CameraManagementPage: React.FC = () => {
                   placeholder="e.g. Main Entrance North"
                   value={newCameraName}
                   onChange={e => setNewCameraName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-sm focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
 
@@ -449,8 +467,14 @@ export const CameraManagementPage: React.FC = () => {
                 <label className="block text-xs font-semibold text-gray-700 mb-1">Connection Protocol</label>
                 <select
                   value={newConnectionType}
-                  onChange={e => setNewConnectionType(e.target.value as any)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-white focus:ring-blue-500 focus:border-blue-500"
+                  onChange={e => {
+                    const val = e.target.value as any;
+                    setNewConnectionType(val);
+                    if (val === 'MOCK_STREAM' && !newRtspUrl) {
+                      setNewRtspUrl('rtsp://demo-stream/test-clip.mp4');
+                    }
+                  }}
+                  className="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-sm bg-white focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="RTSP">RTSP (Standard IP Camera Stream)</option>
                   <option value="MOCK_STREAM">Mock Clip Pipeline (DEMO Mode)</option>
@@ -466,14 +490,14 @@ export const CameraManagementPage: React.FC = () => {
                   placeholder="rtsp://192.168.1.120:554/h264Preview_01_main"
                   value={newRtspUrl}
                   onChange={e => setNewRtspUrl(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="text-[11px] text-gray-500 mt-1">
                   Private or VPN network RTSP streams only. Ports should not be exposed publicly.
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">Username (Optional)</label>
                   <input
@@ -481,7 +505,7 @@ export const CameraManagementPage: React.FC = () => {
                     placeholder="admin"
                     value={newUsername}
                     onChange={e => setNewUsername(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-sm focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
@@ -491,7 +515,7 @@ export const CameraManagementPage: React.FC = () => {
                     placeholder="••••••••"
                     value={newPassword}
                     onChange={e => setNewPassword(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-sm focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
@@ -501,18 +525,18 @@ export const CameraManagementPage: React.FC = () => {
                 <span>Credentials will be encrypted with server-side managed keys and never returned in UI.</span>
               </div>
 
-              <div className="flex justify-end items-center gap-2 pt-2">
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end items-stretch sm:items-center gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  className="w-full sm:w-auto px-4 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50 transition text-center"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50"
+                  className="w-full sm:w-auto px-5 py-2.5 sm:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 transition text-center"
                 >
                   {isSubmitting ? 'Registering...' : 'Add Camera'}
                 </button>
@@ -524,13 +548,13 @@ export const CameraManagementPage: React.FC = () => {
 
       {/* Edit Camera Modal */}
       {editingCamera && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-gray-200">
-            <div className="flex justify-between items-start mb-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-4 sm:p-6 border border-gray-200 my-auto flex flex-col max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] overflow-y-auto">
+            <div className="flex justify-between items-start mb-4 shrink-0">
               <div>
-                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                  <VideoIcon size={20} className="text-blue-600" />
-                  Edit Camera Configuration
+                <h3 className="text-base sm:text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <VideoIcon size={20} className="text-blue-600 shrink-0" />
+                  <span>Edit Camera Configuration</span>
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
                   Update stream metadata for {editingCamera.name} (ID: {editingCamera.id})
@@ -539,13 +563,14 @@ export const CameraManagementPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setEditingCamera(null)}
-                className="text-gray-400 hover:text-gray-600 text-lg font-bold"
+                className="min-w-[36px] min-h-[36px] flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg text-lg font-bold ml-2 transition"
+                aria-label="Close modal"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSaveEditCamera} className="space-y-4">
+            <form onSubmit={handleSaveEditCamera} className="space-y-4 flex-1">
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1">Camera Label / Name</label>
                 <input
@@ -553,7 +578,7 @@ export const CameraManagementPage: React.FC = () => {
                   required
                   value={editCameraName}
                   onChange={e => setEditCameraName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-sm focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
 
@@ -562,7 +587,7 @@ export const CameraManagementPage: React.FC = () => {
                 <select
                   value={editConnectionType}
                   onChange={e => setEditConnectionType(e.target.value as any)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-white focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-sm bg-white focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="RTSP">RTSP (Standard IP Camera Stream)</option>
                   <option value="MOCK_STREAM">Mock Clip Pipeline (DEMO Mode)</option>
@@ -577,22 +602,22 @@ export const CameraManagementPage: React.FC = () => {
                   required
                   value={editRtspUrl}
                   onChange={e => setEditRtspUrl(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
 
-              <div className="flex justify-end items-center gap-2 pt-2">
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end items-stretch sm:items-center gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setEditingCamera(null)}
-                  className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  className="w-full sm:w-auto px-4 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50 transition text-center"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingEdit}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50"
+                  className="w-full sm:w-auto px-5 py-2.5 sm:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 transition text-center"
                 >
                   {isSavingEdit ? 'Saving...' : 'Save Configuration'}
                 </button>
@@ -604,7 +629,7 @@ export const CameraManagementPage: React.FC = () => {
 
       {/* Counting Line Modal Canvas */}
       {activeLineCamera && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn overflow-y-auto">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 animate-fadeIn overflow-y-auto">
           {loadingLine ? (
             <div className="bg-white p-8 rounded-2xl flex items-center gap-3">
               <RefreshCwIcon size={20} className="animate-spin text-blue-600" />

@@ -126,7 +126,7 @@ cameraRouter.patch(['/shops/:shopId/cameras/:cameraId', '/cameras/:cameraId'], r
     if (name) camera.name = name.trim();
     if (connectionType) camera.connectionType = connectionType;
     const finalStreamUrl = streamUrl || rtspUrl;
-    if (finalStreamUrl) {
+    if (finalStreamUrl && !finalStreamUrl.includes('****')) {
       camera.encryptedStreamUrl = encryptCredential(finalStreamUrl);
       camera.sanitizedStreamUrl = sanitizeStreamUrl(finalStreamUrl);
     }

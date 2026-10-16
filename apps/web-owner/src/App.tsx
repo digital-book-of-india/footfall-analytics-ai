@@ -40,16 +40,23 @@ const AppContent: React.FC = () => {
         onOpenNewShopModal={() => setShowNewShopModal(true)}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 pb-24 md:pb-8">
         {currentTab === 'dashboard' && (
           <DashboardPage
             onNavigateToCameras={() => setCurrentTab('cameras')}
             onNavigateToReports={() => setCurrentTab('reports')}
+            onOpenNewShopModal={() => setShowNewShopModal(true)}
           />
         )}
-        {currentTab === 'cameras' && <CameraManagementPage />}
-        {currentTab === 'reports' && <ReportsPage />}
-        {currentTab === 'settings' && <ShopProfilePage />}
+        {currentTab === 'cameras' && (
+          <CameraManagementPage onOpenNewShopModal={() => setShowNewShopModal(true)} />
+        )}
+        {currentTab === 'reports' && (
+          <ReportsPage onOpenNewShopModal={() => setShowNewShopModal(true)} />
+        )}
+        {currentTab === 'settings' && (
+          <ShopProfilePage onOpenNewShopModal={() => setShowNewShopModal(true)} />
+        )}
       </main>
 
       <NewShopModal
@@ -58,7 +65,7 @@ const AppContent: React.FC = () => {
       />
 
       {/* Footer with Compliance & Scope Lock notes */}
-      <footer className="bg-white border-t border-gray-200 py-6 text-xs text-gray-500">
+      <footer className="hidden md:block bg-white border-t border-gray-200 py-6 text-xs text-gray-500">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
             <span className="font-bold text-gray-700">DBI Intelligence • AI Footfall Analytics MVP</span>

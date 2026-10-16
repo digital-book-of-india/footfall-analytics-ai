@@ -10,10 +10,15 @@ import {
   BarChartIcon,
   ArrowDownRightIcon,
   ArrowUpRightIcon,
-  UsersIcon
+  UsersIcon,
+  PlusIcon
 } from '../components/icons';
 
-export const ReportsPage: React.FC = () => {
+interface ReportsPageProps {
+  onOpenNewShopModal?: () => void;
+}
+
+export const ReportsPage: React.FC<ReportsPageProps> = ({ onOpenNewShopModal }) => {
   const { selectedShop, isLoading: shopLoading } = useShop();
   const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [timeseries, setTimeseries] = useState<FootfallTimeseriesPoint[]>([]);
@@ -89,7 +94,17 @@ export const ReportsPage: React.FC = () => {
   if (!selectedShop) {
     return (
       <div className="bg-white p-8 rounded-2xl border border-gray-200 text-center">
-        <p className="text-gray-500 text-sm">Please select a store to view footfall reports.</p>
+        <p className="text-gray-500 text-sm mb-4">Please select or create a store to view footfall reports.</p>
+        {onOpenNewShopModal && (
+          <button
+            type="button"
+            onClick={onOpenNewShopModal}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-2 shadow-sm transition"
+          >
+            <PlusIcon size={16} />
+            Create Store Location
+          </button>
+        )}
       </div>
     );
   }
@@ -97,23 +112,23 @@ export const ReportsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header with Date Filter and CSV Download */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-6 rounded-2xl border border-gray-200 shadow-sm">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Footfall Reports & Audit Logs</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">Footfall Reports & Audit Logs</h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-1">
             Aggregated hourly crossings and visitor flow metrics for {selectedShop.name}.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
           {/* Date Picker */}
-          <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-300">
-            <CalendarIcon size={16} className="text-gray-500" />
+          <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 sm:py-1.5 rounded-xl border border-gray-300 flex-1 sm:flex-none">
+            <CalendarIcon size={16} className="text-gray-500 shrink-0" />
             <input
               type="date"
               value={selectedDate}
               onChange={e => setSelectedDate(e.target.value)}
-              className="bg-transparent text-xs font-semibold text-gray-800 focus:outline-none"
+              className="bg-transparent text-xs font-semibold text-gray-800 focus:outline-none w-full"
             />
           </div>
 
@@ -131,7 +146,7 @@ export const ReportsPage: React.FC = () => {
             type="button"
             onClick={handleExportCsv}
             disabled={isExporting || timeseries.length === 0}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-sm transition disabled:opacity-50"
+            className="w-full sm:w-auto justify-center px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-sm transition disabled:opacity-50"
           >
             <DownloadIcon size={16} />
             {isExporting ? 'Exporting...' : 'Export to CSV'}
