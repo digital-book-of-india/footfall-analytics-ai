@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+﻿import { Router, Response } from 'express';
 import { UserModel } from '../models/User.js';
 import { ShopModel } from '../models/Shop.js';
 import { CameraModel } from '../models/Camera.js';
@@ -18,6 +18,20 @@ adminRouter.use(requireAuth);
 adminRouter.use(requireRole('SUPER_ADMIN'));
 
 /**
+ * Dynamic evaluator to ensure stale heartbeats (>90s) never show as ONLINE
+ */
+function evaluateCameraStatus(status: string, lastHeartbeatAt: Date | string | null | undefined): string {
+  if (!lastHeartbeatAt) {
+    return status === 'CONFIG_ERROR' ? 'CONFIG_ERROR' : 'NEEDS_SETUP';
+  }
+  const diffMs = Date.now() - new Date(lastHeartbeatAt).getTime();
+  if (diffMs > 90000) {
+    return 'OFFLINE';
+  }
+  return status;
+}
+
+/**
  * GET /api/v1/admin/overview
  * Platform-wide KPI overview metrics + Worker health
  */
@@ -27,10 +41,20 @@ adminRouter.get('/overview', async (_req: AuthenticatedRequest, res: Response) =
     const activeShops = await ShopModel.countDocuments({ status: 'ACTIVE' });
     const suspendedShops = await ShopModel.countDocuments({ status: 'SUSPENDED' });
     const totalOwners = await UserModel.countDocuments({ role: 'SHOP_OWNER' });
-    const totalCameras = await CameraModel.countDocuments();
-    const onlineCameras = await CameraModel.countDocuments({ status: 'ONLINE' });
-    const degradedCameras = await CameraModel.countDocuments({ status: { $in: ['DEGRADED', 'CONFIG_ERROR'] } });
-    const offlineCameras = await CameraModel.countDocuments({ status: 'OFFLINE' });
+    
+    const allCameras = await CameraModel.find();
+    const totalCameras = allCameras.length;
+
+    let onlineCameras = 0;
+    let degradedCameras = 0;
+    let offlineCameras = 0;
+
+    for (const cam of allCameras) {
+      const evaluated = evaluateCameraStatus(cam.status, cam.lastHeartbeatAt);
+      if (evaluated === 'ONLINE') onlineCameras++;
+      else if (evaluated === 'DEGRADED' || evaluated === 'CONFIG_ERROR') degradedCameras++;
+      else offlineCameras++;
+    }
 
     // Latest camera heartbeat
     const latestCam = await CameraModel.findOne({ lastHeartbeatAt: { $ne: null } }).sort({ lastHeartbeatAt: -1 });
@@ -46,8 +70,8 @@ adminRouter.get('/overview', async (_req: AuthenticatedRequest, res: Response) =
     todayStart.setUTCHours(0, 0, 0, 0);
 
     const todayEvents = await FootfallEventModel.aggregate([
-      { $match: { occurredAt: { $gte: todayStart } } },
-      { $group: { _id: '$direction', count: { $sum: 1 } } },
+      { $match: { occurredAt: {$gte: todayStart } } },
+      { $group: { _id: '$direction', count: {$sum: 1 } } },
     ]);
 
     let totalEntriesToday = 0;
@@ -85,19 +109,18 @@ adminRouter.get('/overview', async (_req: AuthenticatedRequest, res: Response) =
 
 /**
  * GET /api/v1/admin/owners
- * List registered shop owners with search and pagination support
  */
 adminRouter.get('/owners', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
-    const search = ((req.query.search as string) || '').trim();
+    const search = ((req.query.search as string) || (req.query.q as string) || '').trim();
 
     const filter: any = { role: 'SHOP_OWNER' };
     if (search) {
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
+        { name: { $regex: search,$options: 'i' } },
+        { email: { $regex: search,$options: 'i' } },
       ];
     }
 
@@ -137,21 +160,20 @@ adminRouter.get('/owners', async (req: AuthenticatedRequest, res: Response) => {
 
 /**
  * GET /api/v1/admin/shops
- * List all shops with owner details, camera counts, search, and pagination
  */
 adminRouter.get('/shops', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
     const status = req.query.status as string;
-    const search = ((req.query.search as string) || '').trim();
+    const search = ((req.query.search as string) || (req.query.q as string) || '').trim();
 
     const filter: any = {};
     if (status && status !== 'ALL') {
       filter.status = status;
     }
     if (search) {
-      filter.name = { $regex: search, $options: 'i' };
+      filter.name = { $regex: search,$options: 'i' };
     }
 
     const total = await ShopModel.countDocuments(filter);
@@ -168,8 +190,8 @@ adminRouter.get('/shops', async (req: AuthenticatedRequest, res: Response) => {
       shops.map(async (s) => {
         const cameraCount = await CameraModel.countDocuments({ shopId: s._id });
         const events = await FootfallEventModel.aggregate([
-          { $match: { shopId: s._id, occurredAt: { $gte: todayStart } } },
-          { $group: { _id: '$direction', count: { $sum: 1 } } },
+          { $match: { shopId: s._id, occurredAt: {$gte: todayStart } } },
+          { $group: { _id: '$direction', count: {$sum: 1 } } },
         ]);
 
         let todayEntries = 0;
@@ -220,7 +242,7 @@ adminRouter.get('/shops', async (req: AuthenticatedRequest, res: Response) => {
 
 /**
  * PATCH /api/v1/admin/shops/:shopId/status
- * Activate or suspend shop with mandatory reason and audit logging
+ * Enforce minimum 5 characters reason
  */
 adminRouter.patch('/shops/:shopId/status', async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -232,8 +254,8 @@ adminRouter.patch('/shops/:shopId/status', async (req: AuthenticatedRequest, res
       return;
     }
 
-    if (!reason || reason.trim().length === 0) {
-      sendError(res, 400, 'BAD_REQUEST', 'An audited reason is mandatory when changing shop status');
+    if (!reason || typeof reason !== 'string' || reason.trim().length < 5) {
+      sendError(res, 400, 'BAD_REQUEST', 'An audited reason with a minimum of 5 characters is mandatory');
       return;
     }
 
@@ -276,7 +298,7 @@ adminRouter.patch('/shops/:shopId/status', async (req: AuthenticatedRequest, res
 
 /**
  * GET /api/v1/admin/cameras/health
- * List all cameras across system with health & connection statuses
+ * Dynamic status evaluation to prevent showing stale heartbeats as ONLINE
  */
 adminRouter.get('/cameras/health', async (_req: AuthenticatedRequest, res: Response) => {
   try {
@@ -284,6 +306,7 @@ adminRouter.get('/cameras/health', async (_req: AuthenticatedRequest, res: Respo
 
     const items = cameras.map((c) => {
       const shopDoc = c.shopId as any;
+      const evaluated = evaluateCameraStatus(c.status, c.lastHeartbeatAt);
       return {
         _id: c._id.toString(),
         id: c._id.toString(),
@@ -291,7 +314,7 @@ adminRouter.get('/cameras/health', async (_req: AuthenticatedRequest, res: Respo
         cameraName: c.name,
         shopId: shopDoc?._id?.toString() || '',
         shopName: shopDoc?.name || 'Unknown Shop',
-        status: c.status,
+        status: evaluated,
         connectionType: c.connectionType || 'RTSP',
         lastHeartbeatAt: c.lastHeartbeatAt ? c.lastHeartbeatAt.toISOString() : null,
         safeErrorCode: c.safeErrorCode || null,
@@ -309,7 +332,6 @@ adminRouter.get('/cameras/health', async (_req: AuthenticatedRequest, res: Respo
 
 /**
  * GET /api/v1/admin/audit-logs
- * List audit logs with pagination
  */
 adminRouter.get('/audit-logs', async (req: AuthenticatedRequest, res: Response) => {
   try {
