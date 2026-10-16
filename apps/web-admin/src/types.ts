@@ -1,4 +1,4 @@
-﻿export type TabKey = 'overview' | 'shops' | 'owners' | 'cameras' | 'audit';
+export type TabKey = 'overview' | 'shops' | 'owners' | 'cameras' | 'audit' | 'audit-logs';
 
 export interface OverviewMetrics {
   totalShops: number;
@@ -16,9 +16,11 @@ export interface OverviewMetrics {
 
 export interface ShopItem {
   _id: string;
+  id?: string;
   name: string;
   ownerName?: string;
   ownerEmail?: string;
+  owner?: { id?: string; name?: string; email?: string };
   cameraCount: number;
   timezone: string;
   status: 'ACTIVE' | 'SUSPENDED';
@@ -26,10 +28,12 @@ export interface ShopItem {
 
 export interface OwnerItem {
   _id: string;
+  id?: string;
   name: string;
   email: string;
   status: string;
   shopsCount: number;
+  shopCount?: number;
   createdAt: string;
 }
 

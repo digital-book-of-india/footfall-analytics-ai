@@ -1,5 +1,4 @@
-﻿import React from 'react';
-import { NavLink } from 'react-router-dom';
+import React from 'react';
 import { 
   LayoutDashboard, 
   Store, 
@@ -8,6 +7,21 @@ import {
   ShieldCheck, 
   LogOut 
 } from 'lucide-react';
+
+const NavLink: React.FC<{
+  to: string;
+  end?: boolean;
+  className?: (props: { isActive: boolean }) => string;
+  children: React.ReactNode;
+}> = ({ to, className, children }) => {
+  const isActive = window.location.pathname === to;
+  const classes = typeof className === 'function' ? className({ isActive }) : className;
+  return (
+    <a href={to} className={classes}>
+      {children}
+    </a>
+  );
+};
 
 interface LayoutProps {
   children: React.ReactNode;
