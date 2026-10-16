@@ -46,12 +46,21 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-800">
       <div className="bg-white border border-slate-200 p-8 rounded-2xl w-full max-w-sm shadow-xl space-y-6">
-        <div className="flex flex-col items-center text-center space-y-2">
-          <img 
-            src="/logo.jpeg" 
-            alt="DBI Logo" 
-            className="w-14 h-14 object-contain rounded-xl border border-slate-100 shadow-sm" 
-          />
+        <div className="flex flex-col items-center text-center space-y-3">
+          {/* Logo container wide rectangle ke roop me taaki text aur icon poora clear dikhe */}
+          <div className="px-4 py-2 bg-transparent rounded-lg flex items-center justify-center">
+            <img 
+              src="/L1.png" 
+              alt="Digital Book of India" 
+              className="h-12 w-auto max-w-[220px] object-contain mix-blend-multiply drop-shadow-xs"
+              onError={(e) => {
+                const target = e.currentTarget;
+                if (!target.src.endsWith('/logo.jpeg')) {
+                  target.src = '/logo.jpeg';
+                }
+              }}
+            />
+          </div>
           <div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">DBI Intelligence</h1>
             <p className="text-xs text-slate-500 font-medium">Super Admin Portal</p>

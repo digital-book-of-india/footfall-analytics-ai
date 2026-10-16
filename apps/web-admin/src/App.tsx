@@ -43,15 +43,20 @@ export default function App() {
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col justify-between shadow-sm flex-shrink-0">
         <div>
           {/* Logo & Brand Header */}
-          <div className="p-4 border-b border-slate-100 flex items-center gap-3">
-            <img 
-              src="/logo.jpeg" 
-              alt="DBI Intelligence Logo" 
-              className="w-10 h-10 object-contain rounded-md border border-slate-100 shadow-xs" 
-            />
-            <div>
-              <h1 className="font-bold text-sm tracking-wide text-slate-900 leading-tight">DBI INTELLIGENCE</h1>
-              <span className="text-[10px] uppercase font-semibold tracking-wider text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 inline-block mt-0.5">
+          <div className="p-4 border-b border-slate-100 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <img 
+                src="/L1.png" 
+                alt="Digital Book of India" 
+                className="h-9 w-auto max-w-[150px] object-contain mix-blend-multiply" 
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (!target.src.endsWith('/logo.jpeg')) {
+                    target.src = '/logo.jpeg';
+                  }
+                }}
+              />
+              <span className="text-[9px] uppercase font-bold tracking-wider text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
                 SUPER ADMIN
               </span>
             </div>
