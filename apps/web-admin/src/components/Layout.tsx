@@ -30,20 +30,17 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-800 font-sans">
-      {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col justify-between shadow-sm">
         <div>
-          {/* Logo Header */}
           <div className="p-5 border-b border-slate-100 flex items-center gap-3">
             <img 
-              src="/logo.jpeg" 
+              src="/L1.png" 
               alt="DBI Intelligence Logo" 
               className="w-10 h-10 object-contain rounded-md"
               onError={(e) => {
-                // Fallback checks agar extension me difference ho
                 const target = e.currentTarget;
-                if (!target.src.endsWith('.png')) {
-                  target.src = '/logo.png';
+                if (!target.src.endsWith('/logo.jpeg')) {
+                  target.src = '/logo.jpeg';
                 }
               }} 
             />
@@ -55,7 +52,6 @@ export function Layout({ children }: LayoutProps) {
             </div>
           </div>
 
-          {/* Navigation Links */}
           <nav className="p-3 space-y-1">
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -80,7 +76,6 @@ export function Layout({ children }: LayoutProps) {
           </nav>
         </div>
 
-        {/* Footer Admin Info */}
         <div className="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div className="truncate pr-2">
             <div className="text-xs font-semibold text-slate-800 truncate">admin@dbi.ai</div>
@@ -96,7 +91,6 @@ export function Layout({ children }: LayoutProps) {
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto p-8">
         <div className="max-w-7xl mx-auto">
           {children}
