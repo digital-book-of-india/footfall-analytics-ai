@@ -25,6 +25,15 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   next();
 });
 
+// Public connector installer + electron-updater feed (latest.yml, Setup.exe, .blockmap).
+// Files are uploaded here by the connector release workflow; the .exe link never changes.
+app.use('/downloads/connector', express.static(config.connectorDownloadsDir, {
+  index: false,
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.yml')) res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
+
 // Mount API v1 router
 app.use('/api/v1', apiV1Router);
 

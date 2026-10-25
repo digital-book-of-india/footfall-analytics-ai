@@ -14,5 +14,6 @@ export const config = {
   aiSharedSecret: process.env.AI_SERVICE_SHARED_SECRET || 'dbi_ai_service_shared_secret_2026',
   redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  connectorDownloadsDir: process.env.CONNECTOR_DOWNLOADS_DIR || path.resolve(process.cwd(), 'downloads/connector'),
   cameraHeartbeatTimeoutSec: parseInt(process.env.CAMERA_HEARTBEAT_TIMEOUT_SEC || '90', 10),
 };
