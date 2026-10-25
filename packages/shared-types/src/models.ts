@@ -1,12 +1,13 @@
-import { 
-  Role, 
-  CameraStatus, 
-  Direction, 
-  Quality, 
-  ShopStatus, 
-  UserStatus, 
-  ConnectionType, 
-  BucketType 
+import {
+  Role,
+  CameraStatus,
+  Direction,
+  Quality,
+  ShopStatus,
+  UserStatus,
+  ConnectionType,
+  BucketType,
+  ConnectorStatus
 } from './enums.js';
 
 /**
@@ -59,8 +60,9 @@ export interface NormalizedCoordinates {
 export interface Camera {
   id: string;
   shopId: string;
+  connectorId?: string | null;
   name: string;
-  connectionType: 'RTSP' | 'WEBCAM' | 'MOCK_STREAM';
+  connectionType: ConnectionType;
   status: CameraStatus;
   hasCredentials?: boolean;
   rtspUrlMasked?: string;
@@ -68,6 +70,28 @@ export interface Camera {
   safeErrorCode?: string | null;
   createdAt?: string;
   updatedAt?: string;
+}
+
+/**
+ * On-site Connector: a paired Windows agent that bridges a shop's LAN cameras to the
+ * cloud API when they are behind NAT/firewall and not directly reachable by the AI worker.
+ */
+export interface Connector {
+  id: string;
+  shopId: string;
+  name: string;
+  status: ConnectorStatus;
+  online: boolean;
+  lastHeartbeatAt?: string | null;
+  lastSeenVersion?: string | null;
+  activeCameraCount: number;
+  createdAt?: string;
+}
+
+/** Returned only right after creating a Connector or reissuing its code — shown to the operator once. */
+export interface ConnectorWithPairingCode extends Connector {
+  pairingCode: string;
+  pairingCodeExpiresAt: string;
 }
 
 /**
@@ -122,7 +146,7 @@ export interface AuditLog {
   };
   action: string;
   target: {
-    type: 'SHOP' | 'CAMERA' | 'USER' | 'COUNTING_LINE' | 'SYSTEM';
+    type: 'SHOP' | 'CAMERA' | 'USER' | 'COUNTING_LINE' | 'CONNECTOR' | 'SYSTEM';
     id: string;
   };
   reason?: string;

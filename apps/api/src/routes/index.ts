@@ -4,6 +4,7 @@ import { shopRouter } from './shop.routes.js';
 import { cameraRouter } from './camera.routes.js';
 import { analyticsRouter } from './analytics.routes.js';
 import { adminRouter } from './admin.routes.js';
+import { shopConnectorRouter, connectorRouter } from './connector.routes.js';
 import { sendSuccess } from '../utils/response.js';
 
 export const apiV1Router = Router();
@@ -19,3 +20,5 @@ apiV1Router.use('/shops', shopRouter);
 apiV1Router.use('/', cameraRouter);
 apiV1Router.use('/', analyticsRouter);
 apiV1Router.use('/admin', adminRouter);
+apiV1Router.use('/shops', shopConnectorRouter);
+apiV1Router.use('/connectors', connectorRouter);

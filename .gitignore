@@ -11,3 +11,6 @@ build
 *.tsbuildinfo
 test-clips/*.mp4
 !test-clips/sample-entrance.mp4
+
+# generated at build time by apps/connector/scripts/write-runtime-config.js
+apps/connector/src/lib/runtime-config.json

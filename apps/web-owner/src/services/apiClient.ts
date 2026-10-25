@@ -8,11 +8,14 @@ import {
   CameraStatus,
   CountingLine,
   CameraTestResult,
+  Connector,
+  ConnectorWithPairingCode,
   FootfallSummary,
   FootfallTimeseriesPoint,
   CreateShopInput,
   UpdateShopInput,
   CreateCameraInput,
+  CreateConnectorInput,
   UpdateCountingLineInput,
   ResetOccupancyInput
 } from '../types';
@@ -257,6 +260,12 @@ class ApiClient {
     });
   }
 
+  public async deleteCamera(cameraId: string): Promise<void> {
+    await this.request<{ id: string }>(`/cameras/${cameraId}`, {
+      method: 'DELETE'
+    });
+  }
+
   public async testCamera(cameraId: string): Promise<CameraTestResult> {
     const res = await this.request<any>(`/cameras/${cameraId}/test`, {
       method: 'POST'
@@ -266,6 +275,30 @@ class ApiClient {
       isReachable: res.isReachable !== undefined ? res.isReachable : res.accessible,
       accessible: res.accessible !== undefined ? res.accessible : res.isReachable
     };
+  }
+
+  // --- Connector APIs ---
+  public async getConnectors(shopId: string): Promise<Connector[]> {
+    return this.request<Connector[]>(`/shops/${shopId}/connectors`);
+  }
+
+  public async createConnector(shopId: string, input: CreateConnectorInput): Promise<ConnectorWithPairingCode> {
+    return this.request<ConnectorWithPairingCode>(`/shops/${shopId}/connectors`, {
+      method: 'POST',
+      body: JSON.stringify(input)
+    });
+  }
+
+  public async reissuePairingCode(connectorId: string): Promise<ConnectorWithPairingCode> {
+    return this.request<ConnectorWithPairingCode>(`/connectors/${connectorId}/pairing-code`, {
+      method: 'POST'
+    });
+  }
+
+  public async revokeConnector(connectorId: string): Promise<void> {
+    await this.request<{ id: string }>(`/connectors/${connectorId}`, {
+      method: 'DELETE'
+    });
   }
 
   // --- Counting Line APIs ---
@@ -412,6 +445,11 @@ class ApiClient {
     }));
 
     let baselineOverrides: Record<string, number> = JSON.parse(this.getItem('dbi_mock_baselines') || '{}');
+
+    let connectors: Connector[] = JSON.parse(this.getItem('dbi_mock_connectors') || '[]');
+    let connectorPairingCodes: Record<string, { pairingCode: string; pairingCodeExpiresAt: string }> = JSON.parse(
+      this.getItem('dbi_mock_connector_codes') || '{}'
+    );
 
     // Helper: Enforce tenant isolation by verifying current user owns the shop
     const verifyShopOwnership = (shopId: string): Shop => {
@@ -591,6 +629,104 @@ class ApiClient {
       cam.updatedAt = new Date().toISOString();
       this.setItem('dbi_mock_cameras', JSON.stringify(cameras));
       return cam;
+    }
+
+    // 7b. /cameras/:cameraId (DELETE)
+    const deleteCamMatch = endpoint.match(/^\/cameras\/([^/?]+)(?:\?.*)?$/);
+    if (deleteCamMatch && method === 'DELETE') {
+      const cameraId = deleteCamMatch[1];
+      const cam = cameras.find(c => c.id === cameraId);
+      if (!cam) {
+        const err = new Error(`[NOT_FOUND] Camera ${cameraId} not found`);
+        (err as any).isHttpError = true;
+        (err as any).status = 404;
+        throw err;
+      }
+      verifyShopOwnership(cam.shopId);
+      cameras = cameras.filter(c => c.id !== cameraId);
+      delete lines[cameraId];
+      this.setItem('dbi_mock_cameras', JSON.stringify(cameras));
+      this.setItem('dbi_mock_lines', JSON.stringify(lines));
+      return { id: cameraId, message: 'Camera deleted successfully' };
+    }
+
+    // 7c. /shops/:shopId/connectors (GET & POST)
+    const shopConnectorsMatch = endpoint.match(/^\/shops\/([^/?]+)\/connectors(?:\?.*)?$/);
+    if (shopConnectorsMatch) {
+      const shopId = shopConnectorsMatch[1];
+      verifyShopOwnership(shopId);
+
+      if (method === 'GET') {
+        return connectors.filter(c => c.shopId === shopId);
+      }
+      if (method === 'POST') {
+        if (!body.name || !body.name.trim()) {
+          const err = new Error('[VALIDATION_ERROR] Connector name is required');
+          (err as any).isHttpError = true;
+          (err as any).status = 400;
+          throw err;
+        }
+        const id = 'conn_' + Math.random().toString(36).substring(2, 8);
+        const newConn: Connector = {
+          id,
+          shopId,
+          name: body.name.trim(),
+          status: 'PENDING',
+          online: false,
+          lastHeartbeatAt: null,
+          lastSeenVersion: null,
+          activeCameraCount: 0,
+          createdAt: new Date().toISOString()
+        };
+        const pairingCode = `${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+        const pairingCodeExpiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+        connectorPairingCodes[id] = { pairingCode, pairingCodeExpiresAt };
+        connectors.push(newConn);
+        this.setItem('dbi_mock_connectors', JSON.stringify(connectors));
+        this.setItem('dbi_mock_connector_codes', JSON.stringify(connectorPairingCodes));
+        return { ...newConn, pairingCode, pairingCodeExpiresAt };
+      }
+    }
+
+    // 7d. /connectors/:connectorId/pairing-code (POST)
+    const reissueMatch = endpoint.match(/^\/connectors\/([^/?]+)\/pairing-code(?:\?.*)?$/);
+    if (reissueMatch && method === 'POST') {
+      const connectorId = reissueMatch[1];
+      const conn = connectors.find(c => c.id === connectorId);
+      if (!conn) {
+        const err = new Error(`[NOT_FOUND] Connector ${connectorId} not found`);
+        (err as any).isHttpError = true;
+        (err as any).status = 404;
+        throw err;
+      }
+      verifyShopOwnership(conn.shopId);
+      conn.status = 'PENDING';
+      const pairingCode = `${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+      const pairingCodeExpiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      connectorPairingCodes[connectorId] = { pairingCode, pairingCodeExpiresAt };
+      this.setItem('dbi_mock_connectors', JSON.stringify(connectors));
+      this.setItem('dbi_mock_connector_codes', JSON.stringify(connectorPairingCodes));
+      return { ...conn, pairingCode, pairingCodeExpiresAt };
+    }
+
+    // 7e. /connectors/:connectorId (DELETE)
+    const revokeConnMatch = endpoint.match(/^\/connectors\/([^/?]+)(?:\?.*)?$/);
+    if (revokeConnMatch && method === 'DELETE') {
+      const connectorId = revokeConnMatch[1];
+      const conn = connectors.find(c => c.id === connectorId);
+      if (!conn) {
+        const err = new Error(`[NOT_FOUND] Connector ${connectorId} not found`);
+        (err as any).isHttpError = true;
+        (err as any).status = 404;
+        throw err;
+      }
+      verifyShopOwnership(conn.shopId);
+      conn.status = 'REVOKED';
+      conn.online = false;
+      delete connectorPairingCodes[connectorId];
+      this.setItem('dbi_mock_connectors', JSON.stringify(connectors));
+      this.setItem('dbi_mock_connector_codes', JSON.stringify(connectorPairingCodes));
+      return { id: connectorId, message: 'Connector revoked' };
     }
 
     // 8. /cameras/:cameraId/test (POST)

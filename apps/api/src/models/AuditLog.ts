@@ -9,7 +9,7 @@ export interface IAuditLogDocument extends Document {
   };
   action: string;
   target: {
-    type: 'SHOP' | 'CAMERA' | 'USER' | 'COUNTING_LINE' | 'SYSTEM';
+    type: 'SHOP' | 'CAMERA' | 'USER' | 'COUNTING_LINE' | 'CONNECTOR' | 'SYSTEM';
     id: string;
   };
   reason?: string;
@@ -27,7 +27,7 @@ const AuditLogSchema = new Schema<IAuditLogDocument>(
     },
     action: { type: String, required: true, index: true },
     target: {
-      type: { type: String, required: true, enum: ['SHOP', 'CAMERA', 'USER', 'COUNTING_LINE', 'SYSTEM'] },
+      type: { type: String, required: true, enum: ['SHOP', 'CAMERA', 'USER', 'COUNTING_LINE', 'CONNECTOR', 'SYSTEM'] },
       id: { type: String, required: true },
     },
     reason: { type: String },

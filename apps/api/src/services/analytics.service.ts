@@ -43,12 +43,13 @@ export class AnalyticsService {
       return { dataSource: 'DEMO', quality: 'DEGRADED' };
     }
 
-    // Must be RTSP and ONLINE to claim LIVE per requirements
-    const hasLiveRtspOnline = cameras.some(
-      (c) => c.connectionType === 'RTSP' && c.status === 'ONLINE'
+    // Must be a genuine video source (RTSP/HTTP_STREAM/WEBCAM — never TEST_CLIP/MOCK_STREAM) and ONLINE to claim LIVE
+    const liveConnectionTypes = new Set(['RTSP', 'HTTP_STREAM', 'WEBCAM']);
+    const hasLiveOnline = cameras.some(
+      (c) => liveConnectionTypes.has(c.connectionType) && c.status === 'ONLINE'
     );
 
-    const dataSource: DataSource = hasLiveRtspOnline ? 'LIVE' : 'DEMO';
+    const dataSource: DataSource = hasLiveOnline ? 'LIVE' : 'DEMO';
 
     const hasOfflineOrConfigError = cameras.some(
       (c) => c.status === 'OFFLINE' || c.status === 'CONFIG_ERROR'

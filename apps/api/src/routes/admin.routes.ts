@@ -6,6 +6,7 @@ import { FootfallEventModel } from '../models/FootfallEvent.js';
 import { AuditLogModel } from '../models/AuditLog.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middleware/auth.js';
+import { adminRateLimiter } from '../middleware/rateLimiter.js';
 import { 
   UpdateShopStatusRequest, 
   Shop 
@@ -16,6 +17,7 @@ export const adminRouter = Router();
 // Enforce authentication & SUPER_ADMIN role for all admin routes
 adminRouter.use(requireAuth);
 adminRouter.use(requireRole('SUPER_ADMIN'));
+adminRouter.use(adminRateLimiter);
 
 /**
  * Dynamic evaluator to ensure stale heartbeats (>90s) never show as ONLINE

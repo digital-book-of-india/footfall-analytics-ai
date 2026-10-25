@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { UserModel } from '../models/User.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
+import { authRateLimiter } from '../middleware/rateLimiter.js';
 import { 
   RegisterRequest, 
   LoginRequest, 
@@ -25,7 +26,7 @@ function generateToken(userId: string, role: string, email: string): string {
 /**
  * POST /api/v1/auth/register
  */
-authRouter.post('/register', async (req, res: Response) => {
+authRouter.post('/register', authRateLimiter, async (req, res: Response) => {
   try {
     const { name, email, password, role } = req.body as RegisterRequest;
 
@@ -72,7 +73,7 @@ authRouter.post('/register', async (req, res: Response) => {
 /**
  * POST /api/v1/auth/login
  */
-authRouter.post('/login', async (req, res: Response) => {
+authRouter.post('/login', authRateLimiter, async (req, res: Response) => {
   try {
     const { email, password } = req.body as LoginRequest;
 

@@ -7,13 +7,13 @@ import {
   ShopStatus, 
   ConnectionType 
 } from './enums.js';
-import { 
-  User, 
-  Shop, 
-  Camera, 
-  CountingLine, 
-  NormalizedCoordinates, 
-  AuditLog 
+import {
+  User,
+  Shop,
+  Camera,
+  CountingLine,
+  NormalizedCoordinates,
+  AuditLog
 } from './models.js';
 
 // ==========================================
@@ -88,6 +88,39 @@ export interface CameraHealthResponseData {
   fps?: number;
   droppedFrames?: number;
   modelVersion?: string;
+}
+
+// ==========================================
+// 3b. On-site Connector DTOs
+// ==========================================
+export interface CreateConnectorRequest {
+  name: string;
+}
+
+/** Sent by the unpaired Connector exe, exchanging a one-time pairing code for a device token. */
+export interface PairConnectorRequest {
+  pairingCode: string;
+}
+
+export interface PairConnectorResponseData {
+  connectorId: string;
+  connectorToken: string;
+  shopId: string;
+  shopName: string;
+}
+
+/** Sent periodically by a paired Connector so the dashboard can show "online - seen just now". */
+export interface ConnectorHeartbeatRequest {
+  version: string;
+  activeCameraCount?: number;
+}
+
+export interface ConnectorCameraListItem {
+  cameraId: string;
+  shopId: string;
+  name: string;
+  connectionType: ConnectionType;
+  streamUrl: string;
 }
 
 // ==========================================

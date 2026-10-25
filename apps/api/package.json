@@ -5,11 +5,13 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "prebuild": "npm run build -w @dbi/shared-types",
     "build": "tsc",
     "start": "node dist/server.js",
     "seed": "tsx src/seed.ts",
     "test": "tsx src/test-e2e.ts",
     "test:e2e": "tsx src/test-e2e.ts",
+    "pretypecheck": "npm run build -w @dbi/shared-types",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

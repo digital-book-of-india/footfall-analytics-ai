@@ -1,10 +1,14 @@
 import { Router, Response } from 'express';
+import { promises as fsPromises } from 'fs';
 import { CameraModel } from '../models/Camera.js';
 import { CountingLineModel } from '../models/CountingLine.js';
 import { ShopModel } from '../models/Shop.js';
+import { ConnectorModel } from '../models/Connector.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { requireAuth, requireShopAccess, AuthenticatedRequest } from '../middleware/auth.js';
 import { encryptCredential, sanitizeStreamUrl } from '../utils/crypto.js';
+import { resolveDecryptedStreamUrl } from '../utils/cameraStream.js';
+import { probeStreamReachability } from '../utils/streamProbe.js';
 import { 
   CreateCameraRequest, 
   SetCountingLineRequest, 
@@ -21,12 +25,20 @@ export const cameraRouter = Router({ mergeParams: true });
  */
 cameraRouter.post('/shops/:shopId/cameras', requireAuth, requireShopAccess, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name, connectionType, streamUrl, rtspUrl, username, password } = req.body as any;
+    const { name, connectionType, streamUrl, rtspUrl, username, password, connectorId } = req.body as any;
     const finalStreamUrl = streamUrl || rtspUrl;
 
     if (!name || !finalStreamUrl) {
       sendError(res, 400, 'BAD_REQUEST', 'Camera name and streamUrl or rtspUrl are required');
       return;
+    }
+
+    if (connectorId) {
+      const connector = await ConnectorModel.findById(connectorId);
+      if (!connector || connector.shopId.toString() !== req.shop!._id.toString()) {
+        sendError(res, 400, 'BAD_REQUEST', 'connectorId does not refer to a connector on this shop');
+        return;
+      }
     }
 
     const type = connectionType || 'RTSP';
@@ -47,6 +59,7 @@ cameraRouter.post('/shops/:shopId/cameras', requireAuth, requireShopAccess, asyn
 
     const camera = await CameraModel.create({
       shopId: req.shop!._id,
+      connectorId: connectorId || null,
       name: name.trim(),
       connectionType: type,
       encryptedStreamUrl,
@@ -121,10 +134,20 @@ cameraRouter.patch(['/shops/:shopId/cameras/:cameraId', '/cameras/:cameraId'], r
     if (!context) return;
     const { camera } = context;
 
-    const { name, connectionType, streamUrl, rtspUrl } = req.body;
+    const { name, connectionType, streamUrl, rtspUrl, connectorId } = req.body;
 
     if (name) camera.name = name.trim();
     if (connectionType) camera.connectionType = connectionType;
+    if (connectorId !== undefined) {
+      if (connectorId) {
+        const connector = await ConnectorModel.findById(connectorId);
+        if (!connector || connector.shopId.toString() !== camera.shopId.toString()) {
+          sendError(res, 400, 'BAD_REQUEST', 'connectorId does not refer to a connector on this shop');
+          return;
+        }
+      }
+      camera.connectorId = connectorId || null;
+    }
     const finalStreamUrl = streamUrl || rtspUrl;
     if (finalStreamUrl && !finalStreamUrl.includes('****')) {
       camera.encryptedStreamUrl = encryptCredential(finalStreamUrl);
@@ -140,7 +163,10 @@ cameraRouter.patch(['/shops/:shopId/cameras/:cameraId', '/cameras/:cameraId'], r
 
 /**
  * POST /api/v1/cameras/:cameraId/test
- * Stream connection test
+ * Real stream connectivity test — not simulated. RTSP/HTTP_STREAM/WEBCAM get an actual
+ * TCP reachability probe (ported from the sibling theaft-ai project's camera test);
+ * TEST_CLIP gets a real check that the local clip file exists; MOCK_STREAM is the one
+ * intentionally-fake case (pure UI demo, nothing to probe).
  */
 cameraRouter.post('/cameras/:cameraId/test', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -148,27 +174,64 @@ cameraRouter.post('/cameras/:cameraId/test', requireAuth, async (req: Authentica
     if (!context) return;
     const { camera } = context;
 
-    // Simulate stream validation latency
     const startMs = Date.now();
-    const isClip = camera.connectionType === 'TEST_CLIP' || camera.connectionType === 'MOCK_STREAM';
 
-    // Update camera status based on test
-    const newStatus: any = camera.connectionType === 'MOCK_STREAM' ? 'DEGRADED' : 'ONLINE';
-    camera.status = newStatus;
-    camera.lastHeartbeatAt = new Date();
-    camera.safeErrorCode = camera.connectionType === 'MOCK_STREAM' ? 'DEMO_CLIP_ACTIVE' : undefined;
+    if (camera.connectionType === 'MOCK_STREAM') {
+      camera.status = 'DEGRADED';
+      camera.lastHeartbeatAt = new Date();
+      camera.safeErrorCode = 'DEMO_CLIP_ACTIVE';
+      await camera.save();
+
+      sendSuccess<CameraTestResponseData>(res, {
+        cameraId: camera._id.toString(),
+        accessible: true,
+        isReachable: true,
+        status: camera.status,
+        latencyMs: Date.now() - startMs,
+        safeErrorCode: camera.safeErrorCode,
+        message: 'Mock demo stream active — this connection type has no real source to check',
+        testedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const streamUrl = resolveDecryptedStreamUrl(camera);
+    let reachable: boolean;
+    let errorCode: string | undefined;
+    let message: string;
+
+    if (camera.connectionType === 'TEST_CLIP') {
+      try {
+        await fsPromises.access(streamUrl);
+        reachable = true;
+        message = 'Test clip file found and accessible';
+      } catch {
+        reachable = false;
+        errorCode = 'CLIP_FILE_NOT_FOUND';
+        message = 'Test clip file not found at the configured path';
+      }
+    } else {
+      const probe = await probeStreamReachability(streamUrl);
+      reachable = probe.reachable;
+      errorCode = probe.errorCode;
+      message = reachable
+        ? 'RTSP stream connection established and reachable'
+        : `Stream unreachable: ${probe.errorCode || 'UNKNOWN_ERROR'}`;
+    }
+
+    camera.status = reachable ? 'ONLINE' : errorCode === 'INVALID_STREAM_URL' ? 'CONFIG_ERROR' : 'OFFLINE';
+    if (reachable) camera.lastHeartbeatAt = new Date();
+    camera.safeErrorCode = reachable ? undefined : errorCode;
     await camera.save();
-
-    const latencyMs = Math.max(12, Date.now() - startMs + (isClip ? 15 : 45));
 
     sendSuccess<CameraTestResponseData>(res, {
       cameraId: camera._id.toString(),
-      accessible: true,
-      isReachable: true,
-      status: newStatus,
-      latencyMs,
+      accessible: reachable,
+      isReachable: reachable,
+      status: camera.status,
+      latencyMs: Date.now() - startMs,
       safeErrorCode: camera.safeErrorCode || null,
-      message: isClip ? 'Test clip stream validated successfully' : 'RTSP stream connection established and reachable',
+      message,
       testedAt: new Date().toISOString(),
     });
   } catch (err: any) {
@@ -277,5 +340,25 @@ cameraRouter.get('/cameras/:cameraId/counting-line', requireAuth, async (req: Au
     sendSuccess<CountingLine>(res, countingLine.toResponseObject());
   } catch (err: any) {
     sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to fetch counting line');
+  }
+});
+
+/**
+ * DELETE /api/v1/cameras/:cameraId
+ * Removes the camera and its counting line. Does not touch footfallEvents/aggregates
+ * already recorded — historical analytics stay intact.
+ */
+cameraRouter.delete('/cameras/:cameraId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const context = await checkCameraAccess(req, res);
+    if (!context) return;
+    const { camera } = context;
+
+    await CountingLineModel.deleteOne({ cameraId: camera._id });
+    await CameraModel.findByIdAndDelete(camera._id);
+
+    sendSuccess(res, { id: camera._id.toString(), message: 'Camera deleted successfully' });
+  } catch (err: any) {
+    sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to delete camera');
   }
 });

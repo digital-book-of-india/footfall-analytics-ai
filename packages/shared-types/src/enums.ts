@@ -42,7 +42,13 @@ export type UserStatus = 'ACTIVE' | 'SUSPENDED';
 /**
  * Camera video connection type
  */
-export type ConnectionType = 'RTSP' | 'TEST_CLIP' | 'HTTP_STREAM';
+export type ConnectionType = 'RTSP' | 'TEST_CLIP' | 'HTTP_STREAM' | 'MOCK_STREAM' | 'WEBCAM';
+
+/**
+ * Lifecycle status of a paired on-site Connector agent (desktop app bridging a
+ * shop's LAN cameras to the cloud API when they are not directly reachable).
+ */
+export type ConnectorStatus = 'PENDING' | 'PAIRED' | 'REVOKED';
 
 /**
  * Time bucket granularity for footfall aggregates

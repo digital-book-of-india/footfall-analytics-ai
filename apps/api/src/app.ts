@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { config } from './config.js';
 import { apiV1Router } from './routes/index.js';
 import { internalRouter } from './routes/internal.routes.js';
+import { connectorPairingRouter, connectorDeviceRouter } from './routes/internalConnector.routes.js';
 import { sendError } from './utils/response.js';
 
 export const app = express();
@@ -29,6 +30,10 @@ app.use('/api/v1', apiV1Router);
 
 // Mount Internal AI v1 router
 app.use('/internal/v1/footfall', internalRouter);
+
+// Mount Internal Connector v1 routers (pairing is unauthenticated; device calls require connectorAuth)
+app.use('/internal/v1/connectors', connectorPairingRouter);
+app.use('/internal/v1/connectors', connectorDeviceRouter);
 
 // 404 Not Found Handler
 app.use((req: Request, res: Response) => {

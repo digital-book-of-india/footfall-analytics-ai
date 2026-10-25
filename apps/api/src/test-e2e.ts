@@ -111,8 +111,13 @@ async function runEndToEndMasterTest() {
     });
     const testCamData = await testCamRes.json();
     assertNoLeak(testCamData, 'Camera Test Response');
-    if (testCamData.data?.status !== 'ONLINE') throw new Error('Camera test did not set ONLINE status');
-    console.log(`   • Stream Connection Tested: Status=${testCamData.data?.status}, Latency=${testCamData.data?.latencyMs}ms`);
+    // This RTSP address is not a real, network-reachable camera in this environment, so a real TCP
+    // reachability probe must correctly report it OFFLINE — scope lock requires we never fake ONLINE
+    // ("do not mark camera LIVE") for a stream that was not actually reached.
+    if (testCamData.data?.status !== 'OFFLINE' || testCamData.data?.isReachable !== false) {
+      throw new Error(`Camera test must honestly report an unreachable stream as OFFLINE, got status=${testCamData.data?.status}`);
+    }
+    console.log(`   • Stream Connection Tested (real TCP probe, unreachable IP correctly reported): Status=${testCamData.data?.status}, Latency=${testCamData.data?.latencyMs}ms`);
     console.log('   ✅ Owner Flow passed with 100% success.\n');
 
     // -------------------------------------------------------------------------
@@ -309,8 +314,85 @@ async function runEndToEndMasterTest() {
     console.log('   • Passwords in API responses: Strictly omitted (hasCredentials=true flag only)');
     console.log('   ✅ Secret Handling passed with 100% success.\n');
 
+    // -------------------------------------------------------------------------
+    // CHECK 7: On-site Connector Pairing, Heartbeat, Camera Sync, Revocation
+    // -------------------------------------------------------------------------
+    console.log('7️⃣  [CHECK 7] Testing On-site Connector lifecycle (Pair -> Heartbeat -> Sync -> Revoke)...');
+
+    const createConnRes = await fetch(`${baseUrl}/api/v1/shops/${shopId}/connectors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ownerToken}` },
+      body: JSON.stringify({ name: 'E2E Shop PC' }),
+    });
+    const createConnData = await createConnRes.json();
+    if (!createConnData.success || !createConnData.data?.pairingCode) throw new Error('Connector creation did not return a pairing code');
+    const { pairingCode, id: connectorId } = createConnData.data;
+    console.log(`   • Connector created: '${createConnData.data.name}' (pairing code issued, PENDING)`);
+
+    const pairRes = await fetch(`${baseUrl}/internal/v1/connectors/pair`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pairingCode }),
+    });
+    const pairData = await pairRes.json();
+    assertNoLeak(pairData, 'Connector Pair Response');
+    if (!pairData.success || !pairData.data?.connectorToken) throw new Error('Connector pairing did not return a device token');
+    const connectorToken = pairData.data.connectorToken;
+    console.log('   • Connector paired: one-time code exchanged for a device token');
+
+    const hbRes = await fetch(`${baseUrl}/internal/v1/connectors/heartbeat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-connector-token': connectorToken },
+      body: JSON.stringify({ version: '0.1.0', activeCameraCount: 0 }),
+    });
+    if (!(await hbRes.json()).success) throw new Error('Connector heartbeat failed');
+    console.log('   • Connector heartbeat accepted');
+
+    // Assign the existing E2E camera to this connector, then confirm the connector can read
+    // its own decrypted stream URL back — and that it is the ONLY camera it can see.
+    await fetch(`${baseUrl}/api/v1/cameras/${cameraId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ownerToken}` },
+      body: JSON.stringify({ connectorId }),
+    });
+    // NOTE: unlike every owner/admin-facing endpoint, this one is DELIBERATELY the one place
+    // the real decrypted stream URL (with embedded password) is returned — same contract as
+    // the AI worker's /internal/v1/footfall/cameras/:id/stream-config. It is gated by a
+    // per-connector device token, never reachable from a browser, so assertNoLeak does not
+    // apply here — that would be testing the system into *removing* the credentials the
+    // connector exe needs to actually open the stream.
+    const connCamsRes = await fetch(`${baseUrl}/internal/v1/connectors/cameras`, {
+      headers: { 'x-connector-token': connectorToken },
+    });
+    const connCamsData = await connCamsRes.json();
+    if (connCamsData.data?.items?.length !== 1 || connCamsData.data.items[0].cameraId !== cameraId) {
+      throw new Error('Connector camera sync did not return exactly its own assigned camera');
+    }
+    console.log('   • Connector camera sync scoped correctly to its own assigned camera only');
+
+    const wrongTokenRes = await fetch(`${baseUrl}/internal/v1/connectors/cameras`, {
+      headers: { 'x-connector-token': 'not-a-real-token' },
+    });
+    if (wrongTokenRes.status !== 401) throw new Error('Connector endpoints must reject an invalid device token');
+    console.log('   • Invalid connector token correctly rejected (401)');
+
+    const revokeRes = await fetch(`${baseUrl}/api/v1/connectors/${connectorId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${ownerToken}` },
+    });
+    if (revokeRes.status !== 200) throw new Error('Connector revoke failed');
+
+    const afterRevokeRes = await fetch(`${baseUrl}/internal/v1/connectors/heartbeat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-connector-token': connectorToken },
+      body: JSON.stringify({ version: '0.1.0' }),
+    });
+    if (afterRevokeRes.status !== 401) throw new Error('A revoked connector token must be rejected immediately');
+    console.log('   • Connector revoked: its device token is immediately rejected');
+    console.log('   ✅ Connector lifecycle passed with 100% success.\n');
+
     console.log('================================================================');
-    console.log('🎉 ALL 6 CRITICAL ACCEPTANCE CHECKS PASSED WITH 100% SUCCESS! 🚀');
+    console.log('🎉 ALL 7 CRITICAL ACCEPTANCE CHECKS PASSED WITH 100% SUCCESS! 🚀');
     console.log('================================================================\n');
   } finally {
     server.close();

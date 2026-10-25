@@ -10,7 +10,8 @@ AI-powered retail footfall analytics platform delivering live store entry/exit c
 footfall-analytics-ai/
 ├── apps/
 │   ├── api/             # Developer 3: Express + Mongoose REST API (Port 4000)
-│   ├── ai-worker/       # Developer 3: Stream processor & line crossing simulator
+│   ├── ai-worker/       # Developer 3: Python/OpenCV stream processor, person detector & line-crossing counter
+│   ├── connector/       # On-site Windows agent (Electron): bridges LAN cameras the cloud AI worker can't reach directly
 │   ├── web-owner/       # Developer 1: Store Owner Portal (Vite + React)
 │   └── web-admin/       # Developer 2: Super Admin Portal (Vite + React)
 └── packages/
@@ -48,9 +49,12 @@ In separate terminal windows:
   ```bash
   npm --workspace=@dbi/api run dev
   ```
-* **AI Worker Service:**
+* **AI Worker Service** (Python, not an npm workspace — see `apps/ai-worker/README.md`):
   ```bash
-  npm --workspace=@dbi/ai-worker run start
+  cd apps/ai-worker
+  python -m venv .venv && .venv\Scripts\pip install -r requirements.txt
+  copy .env.example .env
+  cd src && ..\.venv\Scripts\python.exe main.py
   ```
 * **Owner Web Portal (Port 5173 / 3000):**
   ```bash
@@ -59,6 +63,13 @@ In separate terminal windows:
 * **Super Admin Web Portal (Port 5174):**
   ```bash
   npm --workspace=web-admin run dev
+  ```
+* **On-site Connector** (Electron desktop agent, only needed when a camera is not directly
+  reachable by the cloud AI worker — see `apps/connector/README.md`):
+  ```bash
+  cd apps/connector
+  npm install
+  npm start
   ```
 
 ---
@@ -73,9 +84,10 @@ In separate terminal windows:
   ```bash
   npm --workspace=@dbi/api run test:e2e
   ```
-* **AI Worker Unit & Protocol Test:**
+* **AI Worker Unit Tests:**
   ```bash
-  npm --workspace=@dbi/ai-worker run test
+  cd apps/ai-worker
+  .venv\Scripts\python.exe -m pytest tests/test_line_crossing.py tests/test_tracker.py -v
   ```
 * **Web Owner Vitest Suite (34 Tests):**
   ```bash

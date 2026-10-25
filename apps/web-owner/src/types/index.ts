@@ -1,6 +1,8 @@
 import type {
   Role,
   CameraStatus,
+  ConnectionType,
+  ConnectorStatus,
   Direction,
   DataSource,
   Quality,
@@ -10,6 +12,8 @@ import type {
   AuthResponse,
   Shop,
   Camera,
+  Connector,
+  ConnectorWithPairingCode,
   NormalizedCoordinates,
   CountingLine,
   CameraTestResult,
@@ -20,6 +24,8 @@ import type {
 export type {
   Role,
   CameraStatus,
+  ConnectionType,
+  ConnectorStatus,
   Direction,
   DataSource,
   Quality,
@@ -29,6 +35,8 @@ export type {
   AuthResponse,
   Shop,
   Camera,
+  Connector,
+  ConnectorWithPairingCode,
   NormalizedCoordinates,
   CountingLine,
   CameraTestResult,
@@ -50,10 +58,15 @@ export interface UpdateShopInput {
 
 export interface CreateCameraInput {
   name: string;
-  connectionType: 'RTSP' | 'WEBCAM' | 'MOCK_STREAM';
+  connectionType: ConnectionType;
   rtspUrl?: string;
   username?: string;
   password?: string;
+  connectorId?: string | null;
+}
+
+export interface CreateConnectorInput {
+  name: string;
 }
 
 export interface UpdateCountingLineInput {

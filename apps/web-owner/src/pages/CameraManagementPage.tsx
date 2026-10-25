@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useShop } from '../context/ShopContext';
-import { Camera, CameraTestResult, CountingLine } from '../types';
+import { Camera, CameraTestResult, CountingLine, ConnectionType, Connector } from '../types';
 import { api } from '../services/apiClient';
 import { CameraStatusBadge } from '../components/StatusBadges';
 import { CountingLineCanvas } from '../components/CountingLineCanvas';
+import { ConnectorsPanel } from '../components/ConnectorsPanel';
 import { maskRtspUrl } from '../utils/security';
 import {
   VideoIcon,
@@ -23,23 +24,26 @@ interface CameraManagementPageProps {
 export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOpenNewShopModal }) => {
   const { selectedShop, isLoading: shopLoading } = useShop();
   const [cameras, setCameras] = useState<Camera[]>([]);
+  const [connectors, setConnectors] = useState<Connector[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   // Add Camera Modal
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [newCameraName, setNewCameraName] = useState<string>('');
-  const [newConnectionType, setNewConnectionType] = useState<'RTSP' | 'WEBCAM' | 'MOCK_STREAM'>('RTSP');
+  const [newConnectionType, setNewConnectionType] = useState<ConnectionType>('RTSP');
   const [newRtspUrl, setNewRtspUrl] = useState<string>('');
   const [newUsername, setNewUsername] = useState<string>('');
   const [newPassword, setNewPassword] = useState<string>('');
+  const [newConnectorId, setNewConnectorId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Edit Camera Modal
   const [editingCamera, setEditingCamera] = useState<Camera | null>(null);
   const [editCameraName, setEditCameraName] = useState<string>('');
-  const [editConnectionType, setEditConnectionType] = useState<'RTSP' | 'WEBCAM' | 'MOCK_STREAM'>('RTSP');
+  const [editConnectionType, setEditConnectionType] = useState<ConnectionType>('RTSP');
   const [editRtspUrl, setEditRtspUrl] = useState<string>('');
+  const [editConnectorId, setEditConnectorId] = useState<string>('');
   const [isSavingEdit, setIsSavingEdit] = useState<boolean>(false);
 
   // Test Camera State
@@ -56,6 +60,7 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
     setEditCameraName(camera.name);
     setEditConnectionType(camera.connectionType);
     setEditRtspUrl(camera.rtspUrlMasked || '');
+    setEditConnectorId(camera.connectorId || '');
   };
 
   const handleSaveEditCamera = async (e: React.FormEvent) => {
@@ -67,7 +72,8 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
       await api.updateCamera(selectedShop.id, editingCamera.id, {
         name: editCameraName,
         connectionType: editConnectionType,
-        rtspUrl: editRtspUrl
+        rtspUrl: editRtspUrl,
+        connectorId: editConnectorId || null
       });
       setEditingCamera(null);
       fetchCameras();
@@ -85,8 +91,12 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
     }
     setError(null);
     try {
-      const data = await api.getCameras(selectedShop.id);
-      setCameras(data);
+      const [cameraData, connectorData] = await Promise.all([
+        api.getCameras(selectedShop.id),
+        api.getConnectors(selectedShop.id).catch(() => [])
+      ]);
+      setCameras(cameraData);
+      setConnectors(connectorData.filter((c) => c.status !== 'REVOKED'));
     } catch (err: any) {
       setError(err.message || 'Failed to fetch camera feeds');
     } finally {
@@ -118,11 +128,13 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
       await api.createCamera(selectedShop.id, {
         name: newCameraName,
         connectionType: newConnectionType,
-        rtspUrl: finalUrl
+        rtspUrl: finalUrl,
+        connectorId: newConnectorId || null
       });
 
       setShowAddModal(false);
       setNewCameraName('');
+      setNewConnectorId('');
       setNewRtspUrl('');
       setNewUsername('');
       setNewPassword('');
@@ -157,6 +169,19 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
       }));
     } finally {
       setTestingCameraId(null);
+    }
+  };
+
+  const handleDeleteCamera = async (camera: Camera) => {
+    if (!window.confirm(`Remove "${camera.name}"? Its counting line will be deleted; past footfall history is kept.`)) {
+      return;
+    }
+    setError(null);
+    try {
+      await api.deleteCamera(camera.id);
+      fetchCameras();
+    } catch (err: any) {
+      setError(err.message || 'Failed to remove camera');
     }
   };
 
@@ -279,6 +304,9 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
         </div>
       )}
 
+      {/* On-site Connectors */}
+      <ConnectorsPanel shopId={selectedShop.id} />
+
       {/* Cameras List */}
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -352,6 +380,15 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
                     </div>
 
                     <div className="flex justify-between py-1 border-b border-gray-100">
+                      <span className="text-gray-500">On-site Connector</span>
+                      <span className="font-semibold text-gray-800">
+                        {camera.connectorId
+                          ? connectors.find(c => c.id === camera.connectorId)?.name || 'Linked connector'
+                          : 'None (direct)'}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between py-1 border-b border-gray-100">
                       <span className="text-gray-500">Last Heartbeat</span>
                       <span className="text-gray-700">
                         {camera.lastHeartbeatAt ? new Date(camera.lastHeartbeatAt).toLocaleTimeString() : 'Never'}
@@ -392,6 +429,14 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
 
                 {/* Actions Footer */}
                 <div className="p-3.5 sm:p-4 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCamera(camera)}
+                    className="w-full sm:w-auto justify-center px-3.5 py-2 bg-white border border-rose-200 hover:bg-rose-50 text-rose-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition sm:mr-auto"
+                  >
+                    Remove
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => handleTestCamera(camera.id)}
@@ -479,6 +524,25 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
                   <option value="RTSP">RTSP (Standard IP Camera Stream)</option>
                   <option value="MOCK_STREAM">Mock Clip Pipeline (DEMO Mode)</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">On-site Connector (Optional)</label>
+                <select
+                  value={newConnectorId}
+                  onChange={e => setNewConnectorId(e.target.value)}
+                  className="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-sm bg-white focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">None — cloud AI worker connects directly</option>
+                  {connectors.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} {c.online ? '(online)' : c.status === 'PENDING' ? '(not paired yet)' : '(offline)'}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Pick a connector if this camera is only reachable from the shop's own network.
+                </p>
               </div>
 
               <div>
@@ -590,6 +654,22 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
                 >
                   <option value="RTSP">RTSP (Standard IP Camera Stream)</option>
                   <option value="MOCK_STREAM">Mock Clip Pipeline (DEMO Mode)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">On-site Connector (Optional)</label>
+                <select
+                  value={editConnectorId}
+                  onChange={e => setEditConnectorId(e.target.value)}
+                  className="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-xl text-sm bg-white focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">None — cloud AI worker connects directly</option>
+                  {connectors.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} {c.online ? '(online)' : c.status === 'PENDING' ? '(not paired yet)' : '(offline)'}
+                    </option>
+                  ))}
                 </select>
               </div>
 

@@ -3,6 +3,7 @@ import { Camera, CameraStatus, ConnectionType } from '@dbi/shared-types';
 
 export interface ICameraDocument extends Document {
   shopId: Types.ObjectId;
+  connectorId?: Types.ObjectId | null;
   name: string;
   connectionType: ConnectionType;
   encryptedStreamUrl: string;
@@ -20,6 +21,7 @@ export interface ICameraDocument extends Document {
 const CameraSchema = new Schema<ICameraDocument>(
   {
     shopId: { type: Schema.Types.ObjectId, ref: 'Shop', required: true, index: true },
+    connectorId: { type: Schema.Types.ObjectId, ref: 'Connector', default: null, index: true },
     name: { type: String, required: true, trim: true },
     connectionType: { 
       type: String, 
@@ -49,10 +51,12 @@ CameraSchema.methods.toResponseObject = function (): Camera {
   return {
     id: this._id.toString(),
     shopId: this.shopId.toString(),
+    connectorId: this.connectorId ? this.connectorId.toString() : null,
     name: this.name,
     connectionType: this.connectionType,
     status: this.status,
     hasCredentials: this.hasCredentials,
+    rtspUrlMasked: this.sanitizedStreamUrl || undefined,
     lastHeartbeatAt: this.lastHeartbeatAt ? this.lastHeartbeatAt.toISOString() : undefined,
     safeErrorCode: this.safeErrorCode,
     createdAt: this.createdAt.toISOString(),
