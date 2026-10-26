@@ -40,6 +40,6 @@ jobs:
         working-directory: apps/connector
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DBI_CONNECTOR_BACKEND_URL: ${{ vars.DBI_CONNECTOR_BACKEND_URL || 'https://api.footfall.digitalbookofindia.com' }}
+          DBI_CONNECTOR_BACKEND_URL: ${{ vars.DBI_CONNECTOR_BACKEND_URL || 'https://footfall.api.digitalbookofindia.com' }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: npm run publish
