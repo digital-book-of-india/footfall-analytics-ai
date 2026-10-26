@@ -1,16 +1,14 @@
 name: Publish Connector
 
-# Runs only when apps/connector itself changes on main - unrelated api/web-owner/web-admin/
-# ai-worker pushes do not trigger a new Connector release.
+# Runs only when apps/connector itself changes on main. Builds the Windows installer and
+# uploads it to the VPS, where the backend serves it at /downloads/connector (stable download
+# link + the latest.yml feed that electron-updater polls).
 on:
   push:
     branches: [main]
     paths:
       - "apps/connector/**"
   workflow_dispatch: {}
-
-permissions:
-  contents: write # needed to create/update the GitHub Release electron-updater reads from
 
 jobs:
   publish:
@@ -25,10 +23,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # electron-updater compares semver, so every release needs a version strictly higher
-      # than the last. Using the ever-increasing run number as the patch version means every
-      # push produces an installable update without anyone having to remember to bump it by
-      # hand. This only changes the version for this build - it is NOT committed back to git.
+      # electron-updater compares semver, so every release needs a strictly higher version.
+      # The ever-increasing run number is used as the patch version. Not committed back to git.
       - name: Set build version
         working-directory: apps/connector
         shell: bash
@@ -36,10 +32,29 @@ jobs:
           MAJOR_MINOR=$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')")
           npm version "${MAJOR_MINOR}.${{ github.run_number }}" --no-git-tag-version --allow-same-version
 
-      - name: Build and publish to GitHub Releases
+      - name: Build installer
         working-directory: apps/connector
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DBI_CONNECTOR_BACKEND_URL: ${{ vars.DBI_CONNECTOR_BACKEND_URL || 'https://footfall.api.digitalbookofindia.com' }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
-        run: npm run publish
+        run: npm run dist
+
+      # Upload the exe first and latest.yml last so clients never see a feed pointing at a
+      # file that has not arrived yet.
+      - name: Upload to VPS
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_DOWNLOADS_DIR: ${{ vars.VPS_DOWNLOADS_DIR || '/root/footfall/apps/api/downloads/connector' }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+          OPTS="-i $HOME/.ssh/id_deploy"
+          cd apps/connector/dist
+          ssh $OPTS "$VPS_USER@$VPS_HOST" "mkdir -p '$VPS_DOWNLOADS_DIR'"
+          scp $OPTS DBI-Footfall-Connector-Setup.exe DBI-Footfall-Connector-Setup.exe.blockmap "$VPS_USER@$VPS_HOST:$VPS_DOWNLOADS_DIR/"
+          scp $OPTS latest.yml "$VPS_USER@$VPS_HOST:$VPS_DOWNLOADS_DIR/"
