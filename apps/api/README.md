@@ -38,7 +38,7 @@ Create `.env` inside `apps/api/` based on `.env.example`:
 | `CAMERA_SECRET_ENCRYPTION_KEY` | *(32 char key)* | AES-256-GCM encryption key for camera RTSP credentials |
 | `AI_SERVICE_SHARED_SECRET` | *(shared secret)* | Authenticates internal AI Worker events via `x-ai-secret` |
 | `CAMERA_HEARTBEAT_TIMEOUT_SEC` | `90` | Inactivity threshold before camera is marked `OFFLINE` |
-| `CORS_ORIGIN` | `http://localhost:3000` | Allowed frontend origin |
+| `CORS_ORIGIN` | `https://footfall.digitalbookofindia.com,https://admin.footfall.digitalbookofindia.com,http://localhost:3000,http://localhost:3001` | Comma-separated list of allowed frontend origins |
 
 ---
 

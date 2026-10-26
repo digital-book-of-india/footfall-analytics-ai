@@ -9,9 +9,16 @@ import { sendError } from './utils/response.js';
 
 export const app = express();
 
-// Enable CORS
+// Enable CORS for the owner/admin web apps (and configured dev origins)
 app.use(cors({
-  origin: true, // Allow frontend dev origins (reflect request origin)
+  origin: (origin, callback) => {
+    // Allow non-browser requests (no Origin header) and whitelisted origins
+    if (!origin || config.corsOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    }
+  },
   credentials: true,
 }));
 

@@ -13,7 +13,10 @@ export const config = {
   cameraEncryptionKey: process.env.CAMERA_SECRET_ENCRYPTION_KEY || 'dbi_camera_secret_key_32bytes!',
   aiSharedSecret: process.env.AI_SERVICE_SHARED_SECRET || 'dbi_ai_service_shared_secret_2026',
   redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
-  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  corsOrigins: (process.env.CORS_ORIGIN || 'http://localhost:3000,http://localhost:3001')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
   connectorDownloadsDir: process.env.CONNECTOR_DOWNLOADS_DIR || path.resolve(process.cwd(), 'downloads/connector'),
   cameraHeartbeatTimeoutSec: parseInt(process.env.CAMERA_HEARTBEAT_TIMEOUT_SEC || '90', 10),
 };
