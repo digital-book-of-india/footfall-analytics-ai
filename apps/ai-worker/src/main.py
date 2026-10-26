@@ -40,6 +40,17 @@ def _new_event_id() -> str:
 
 
 def watch_camera(camera: dict, detector: PersonDetector) -> None:
+    try:
+        _watch_camera(camera, detector)
+    finally:
+        # Early exits (no counting line, config unavailable) end the thread. Wait one discovery
+        # interval, then forget the camera so discovery retries it (e.g. after a counting line
+        # is drawn or the stream URL is fixed) without needing a worker restart.
+        _stop.wait(CAMERA_DISCOVERY_INTERVAL_SEC)
+        _watched_cameras.discard(camera["cameraId"])
+
+
+def _watch_camera(camera: dict, detector: PersonDetector) -> None:
     """Runs forever (until _stop is set) for a single camera: stream -> detect -> track -> count."""
     camera_id = camera["cameraId"]
     shop_id = camera["shopId"]
@@ -48,11 +59,13 @@ def watch_camera(camera: dict, detector: PersonDetector) -> None:
     config = client.get_stream_config(camera_id)
     if not config:
         print(f"[camera {camera_id}] could not fetch stream config — skipping")
+        client.send_heartbeat(camera_id, status="OFFLINE", safe_error_code="CONFIG_UNAVAILABLE")
         return
 
     counting_line = config.get("countingLine")
     if not counting_line or not counting_line.get("enabled"):
         print(f"[camera {camera_id}] ({name}) no enabled counting line configured — skipping detection")
+        client.send_heartbeat(camera_id, status="OFFLINE", safe_error_code="NO_COUNTING_LINE")
         return
 
     coords = counting_line["coordinates"]
@@ -65,10 +78,19 @@ def watch_camera(camera: dict, detector: PersonDetector) -> None:
     last_heartbeat_at = 0.0
 
     print(f"[camera {camera_id}] watching ({name}, {config['connectionType']})")
-    client.send_heartbeat(camera_id, status="ONLINE")
+    last_fail_report_at = 0.0
+
+    def report_unreachable() -> None:
+        # The reader calls this while it cannot open/read the stream. Previously no heartbeat
+        # was sent at all in that state, so the camera went stale (>90s => OFFLINE) with no reason.
+        nonlocal last_fail_report_at
+        now = time.time()
+        if now - last_fail_report_at >= HEARTBEAT_INTERVAL_SEC:
+            client.send_heartbeat(camera_id, status="OFFLINE", safe_error_code="STREAM_UNREACHABLE")
+            last_fail_report_at = now
 
     try:
-        for frame in reader.frames(lambda: _stop.is_set()):
+        for frame in reader.frames(lambda: _stop.is_set(), on_fail=report_unreachable):
             now = time.time()
 
             if now - last_heartbeat_at >= HEARTBEAT_INTERVAL_SEC:

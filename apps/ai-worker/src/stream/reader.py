@@ -33,7 +33,7 @@ class StreamReader:
             self._cap.release()
             self._cap = None
 
-    def frames(self, stop_flag) -> Iterator[np.ndarray]:
+    def frames(self, stop_flag, on_fail=None) -> Iterator[np.ndarray]:
         """Yields frames until stop_flag() returns True. Reconnects automatically on drop.
 
         For a looping local test clip (TEST_CLIP connectionType), rewinds to frame 0
@@ -43,6 +43,8 @@ class StreamReader:
 
         while not stop_flag():
             if self._cap is None and not self._open():
+                if on_fail:
+                    on_fail()
                 time.sleep(self.reconnect_delay)
                 continue
 
@@ -52,6 +54,8 @@ class StreamReader:
                     self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # type: ignore[union-attr]
                     continue
                 self.close()
+                if on_fail:
+                    on_fail()
                 time.sleep(self.reconnect_delay)
                 continue
 
