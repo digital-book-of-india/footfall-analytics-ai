@@ -1,9 +1,10 @@
 # One-command connector release: bump version -> build -> upload to the VPS.
-# Usage (PowerShell, from apps/connector):  .\scripts\release.ps1 -VpsHost 1.2.3.4
+# Usage (PowerShell, from apps/connector):  .\scripts\release.ps1 -VpsHost 103.148.165.234
 # Shops' installed connectors poll latest.yml on the backend and update themselves.
 param(
   [Parameter(Mandatory = $true)][string]$VpsHost,
   [string]$VpsUser = "root",
+  [int]$SshPort = 35610,
   [string]$RemoteDir = "~/footfall/apps/api/downloads/connector",
   [string]$BackendUrl = "https://footfall.api.digitalbookofindia.com"
 )
@@ -20,12 +21,12 @@ npm run dist
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
 $target = "$VpsUser@$VpsHost"
-ssh $target "mkdir -p $RemoteDir"
+ssh -p $SshPort $target "mkdir -p $RemoteDir"
 if ($LASTEXITCODE -ne 0) { throw "ssh failed - check VPS host/user/password" }
 # exe + blockmap first, latest.yml last, so clients never see a feed pointing at a missing file
-scp dist/DBI-Footfall-Connector-Setup.exe dist/DBI-Footfall-Connector-Setup.exe.blockmap "${target}:$RemoteDir/"
+scp -P $SshPort dist/DBI-Footfall-Connector-Setup.exe dist/DBI-Footfall-Connector-Setup.exe.blockmap "${target}:$RemoteDir/"
 if ($LASTEXITCODE -ne 0) { throw "upload of exe failed" }
-scp dist/latest.yml "${target}:$RemoteDir/"
+scp -P $SshPort dist/latest.yml "${target}:$RemoteDir/"
 if ($LASTEXITCODE -ne 0) { throw "upload of latest.yml failed" }
 
 Write-Host "Released v$version"
