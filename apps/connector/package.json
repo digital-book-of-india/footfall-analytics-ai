@@ -1,6 +1,6 @@
 {
   "name": "@dbi/connector",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "author": "DBI Intelligence",
   "description": "DBI Footfall Connector - on-site Windows agent that pairs a shop's LAN with the cloud API and syncs cameras that are not directly reachable by the cloud AI worker.",
@@ -34,9 +34,18 @@
       "package.json"
     ],
     "extraResources": [
-      { "from": "build-resources/python", "to": "python" },
-      { "from": "build-resources/ai-worker", "to": "ai-worker" },
-      { "from": "build-resources/go2rtc", "to": "go2rtc" }
+      {
+        "from": "build-resources/python",
+        "to": "python"
+      },
+      {
+        "from": "build-resources/ai-worker",
+        "to": "ai-worker"
+      },
+      {
+        "from": "build-resources/go2rtc",
+        "to": "go2rtc"
+      }
     ],
     "win": {
       "target": "nsis",

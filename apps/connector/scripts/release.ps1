@@ -21,9 +21,12 @@ if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
 $target = "$VpsUser@$VpsHost"
 ssh $target "mkdir -p $RemoteDir"
+if ($LASTEXITCODE -ne 0) { throw "ssh failed - check VPS host/user/password" }
 # exe + blockmap first, latest.yml last, so clients never see a feed pointing at a missing file
 scp dist/DBI-Footfall-Connector-Setup.exe dist/DBI-Footfall-Connector-Setup.exe.blockmap "${target}:$RemoteDir/"
+if ($LASTEXITCODE -ne 0) { throw "upload of exe failed" }
 scp dist/latest.yml "${target}:$RemoteDir/"
+if ($LASTEXITCODE -ne 0) { throw "upload of latest.yml failed" }
 
 Write-Host "Released v$version"
 Write-Host "Download: $BackendUrl/downloads/connector/DBI-Footfall-Connector-Setup.exe"
