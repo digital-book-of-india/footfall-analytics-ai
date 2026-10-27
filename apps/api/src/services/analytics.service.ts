@@ -2,6 +2,7 @@ import { Types } from 'mongoose';
 import { FootfallEventModel } from '../models/FootfallEvent.js';
 import { CameraModel } from '../models/Camera.js';
 import { ShopModel, IShopDocument } from '../models/Shop.js';
+import { zonedTimeToUtc, isValidTimeZone } from '../utils/timezone.js';
 import { 
   FootfallSummaryResponseData, 
   FootfallTimeseriesResponseData, 
@@ -12,25 +13,41 @@ import {
 
 export class AnalyticsService {
   /**
-   * Helper: Parse date string "YYYY-MM-DD" into start and end of day in UTC
+   * Helper: resolve "YYYY-MM-DD" (or today, in the shop's own local calendar) into the
+   * UTC instants that bound that LOCAL day for the shop's timezone - not UTC midnight.
+   * A UTC-midnight day boundary put Indian stores' (UTC+5:30) footfall from the first
+   * 5.5 hours of their actual day into the previous day's bucket; this fixes that.
    */
-  private static getDayBoundsUtc(dateStr?: string): { start: Date; end: Date; formattedDate: string } {
-    let baseDate: Date;
+  private static getDayBoundsUtc(
+    timeZone: string,
+    dateStr?: string
+  ): { start: Date; end: Date; formattedDate: string } {
+    const zone = isValidTimeZone(timeZone) ? timeZone : 'UTC';
+
+    let year: number, month: number, day: number;
     if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-      baseDate = new Date(`${dateStr}T00:00:00.000Z`);
+      [year, month, day] = dateStr.split('-').map(Number);
     } else {
-      const now = new Date();
-      const yyyy = now.getUTCFullYear();
-      const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-      const dd = String(now.getUTCDate()).padStart(2, '0');
-      baseDate = new Date(`${yyyy}-${mm}-${dd}T00:00:00.000Z`);
+      // "Today" as understood in the shop's own local calendar, not UTC's.
+      const parts: Record<string, string> = {};
+      for (const part of new Intl.DateTimeFormat('en-US', {
+        timeZone: zone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(new Date())) {
+        if (part.type !== 'literal') parts[part.type] = part.value;
+      }
+      year = Number(parts.year);
+      month = Number(parts.month);
+      day = Number(parts.day);
     }
 
-    const start = new Date(baseDate);
-    const end = new Date(baseDate);
-    end.setUTCHours(23, 59, 59, 999);
+    const start = zonedTimeToUtc(year, month, day, 0, 0, 0, zone);
+    const end = zonedTimeToUtc(year, month, day, 23, 59, 59, zone);
+    end.setUTCMilliseconds(999);
 
-    const formattedDate = start.toISOString().split('T')[0];
+    const formattedDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     return { start, end, formattedDate };
   }
 
@@ -70,7 +87,7 @@ export class AnalyticsService {
     shop: IShopDocument,
     dateStr?: string
   ): Promise<FootfallSummaryResponseData> {
-    const { start, end, formattedDate } = this.getDayBoundsUtc(dateStr);
+    const { start, end, formattedDate } = this.getDayBoundsUtc(shop.timezone, dateStr);
     const shopId = shop._id as Types.ObjectId;
 
     // Aggregate entries (IN) and exits (OUT) for the shop within day bounds
@@ -126,10 +143,13 @@ export class AnalyticsService {
     shop: IShopDocument,
     dateStr?: string
   ): Promise<FootfallTimeseriesResponseData> {
-    const { start, end, formattedDate } = this.getDayBoundsUtc(dateStr);
+    const zone = isValidTimeZone(shop.timezone) ? shop.timezone : 'UTC';
+    const { start, end, formattedDate } = this.getDayBoundsUtc(zone, dateStr);
     const shopId = shop._id as Types.ObjectId;
 
-    // Aggregate by hour of the day
+    // Aggregate by hour of the day, in the SHOP's local timezone (MongoDB's $hour
+    // accepts an IANA zone name directly) - grouping by UTC hour would put an Indian
+    // store's (UTC+5:30) evening traffic under the wrong hour on the chart.
     const hourlyEvents = await FootfallEventModel.aggregate([
       {
         $match: {
@@ -140,7 +160,7 @@ export class AnalyticsService {
       {
         $project: {
           direction: 1,
-          hour: { $hour: { date: '$occurredAt', timezone: 'UTC' } },
+          hour: { $hour: { date: '$occurredAt', timezone: zone } },
         },
       },
       {
@@ -171,8 +191,11 @@ export class AnalyticsService {
 
     for (let h = 0; h < 24; h++) {
       const hourStr = `${String(h).padStart(2, '0')}:00`;
-      const bucketDate = new Date(start);
-      bucketDate.setUTCHours(h, 0, 0, 0);
+      // `start` is the UTC instant of the shop's local midnight, which for a
+      // half-hour-offset zone (e.g. Asia/Kolkata, UTC+5:30) does not fall on a whole
+      // UTC hour - setUTCHours(h) would silently snap it to the wrong instant, so
+      // this adds a plain h-hour duration instead.
+      const bucketDate = new Date(start.getTime() + h * 60 * 60 * 1000);
 
       const inCount = hourMap[h].in;
       const outCount = hourMap[h].out;

@@ -90,7 +90,7 @@ async function runPhase5Verification() {
 
     // 5. Test Occupancy Baseline Drift Correction
     console.log('\n5. Testing POST /shops/:shopId/footfall/occupancy-baseline...');
-    const prevOccupancy = summaryData.data?.estimatedOccupancy;
+    console.log(`Occupancy before calibration: ${summaryData.data?.estimatedOccupancy}`);
     const baselineRes = await fetch(`${baseUrl}/shops/${shopId}/footfall/occupancy-baseline`, {
       method: 'POST',
       headers: {
@@ -104,7 +104,10 @@ async function runPhase5Verification() {
     });
     const baselineData = await baselineRes.json();
     console.log(`Baseline Status: ${baselineRes.status}, New Baseline: ${baselineData.data?.occupancyBaseline}, New Occupancy: ${baselineData.data?.estimatedOccupancy}`);
-    if (baselineData.data?.occupancyBaseline !== 10 || baselineData.data?.estimatedOccupancy !== prevOccupancy + 10) {
+    // { baseline: 10 } means "10 people are verified in the store right now" (an
+    // absolute count), not "add 10 to whatever the baseline already was" - so the
+    // resulting estimatedOccupancy must be exactly 10, not prevOccupancy + 10.
+    if (baselineData.data?.estimatedOccupancy !== 10) {
       throw new Error('Baseline correction calculation mismatch');
     }
 

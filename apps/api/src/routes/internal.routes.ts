@@ -4,8 +4,10 @@ import { FootfallEventModel } from '../models/FootfallEvent.js';
 import { FootfallAggregateModel } from '../models/FootfallAggregate.js';
 import { CameraModel, ICameraDocument } from '../models/Camera.js';
 import { CountingLineModel } from '../models/CountingLine.js';
+import { ShopModel } from '../models/Shop.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { resolveDecryptedStreamUrl } from '../utils/cameraStream.js';
+import { floorToLocalHourUtc } from '../utils/timezone.js';
 import {
   IngestFootfallEventRequest,
   IngestEventResponseData,
@@ -20,16 +22,25 @@ internalRouter.use(requireAiServiceSecret);
 /** Connection types the AI worker can open a real video source for (never MOCK_STREAM, which is pure demo). */
 const REAL_VIDEO_CONNECTION_TYPES = new Set(['RTSP', 'TEST_CLIP', 'HTTP_STREAM', 'WEBCAM']);
 
-/** Floors a date to the start of its UTC hour, for hourly aggregate bucketing. */
-function floorToHourUtc(date: Date): Date {
-  const bucket = new Date(date);
-  bucket.setUTCMinutes(0, 0, 0);
-  return bucket;
+/** Per-request cache so a batch of events for the same shop only looks its timezone up once. */
+const shopTimezoneCache = new Map<string, string>();
+async function getShopTimezone(shopId: string): Promise<string> {
+  const cached = shopTimezoneCache.get(shopId);
+  if (cached) return cached;
+  const shop = await ShopModel.findById(shopId).select('timezone').lean();
+  const timeZone = shop?.timezone || 'Asia/Kolkata';
+  shopTimezoneCache.set(shopId, timeZone);
+  return timeZone;
 }
 
-/** Increments (or creates) the hourly footfallAggregates bucket for a processed event. */
+/**
+ * Increments (or creates) the hourly footfallAggregates bucket for a processed event,
+ * bucketed on the shop's own LOCAL hour (not the UTC hour) so these buckets line up
+ * with the dashboard's hourly chart grid (see analytics.service.ts's getTimeseries).
+ */
 async function bumpHourlyAggregate(shopId: string, direction: 'IN' | 'OUT', occurredAt: Date): Promise<void> {
-  const bucketStartUtc = floorToHourUtc(occurredAt);
+  const timeZone = await getShopTimezone(shopId);
+  const bucketStartUtc = floorToLocalHourUtc(occurredAt, timeZone);
   const inc = direction === 'IN' ? { entries: 1 } : { exits: 1 };
   await FootfallAggregateModel.findOneAndUpdate(
     { shopId, bucketStartUtc, bucketType: 'HOUR' },

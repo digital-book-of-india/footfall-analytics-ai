@@ -89,8 +89,11 @@ async function runPhase3Verification() {
     });
     const testData = await testRes.json();
     console.log(`Test Stream Status: ${testRes.status}, Accessible: ${testData.data?.accessible}, Latency: ${testData.data?.latencyMs}ms`);
-    if (testData.data?.status !== 'ONLINE') throw new Error('Expected camera status to be ONLINE after test');
-    console.log('✅ Camera stream test endpoint functional');
+    // 192.168.1.100 above is a dummy, unreachable test IP - the real TCP probe
+    // correctly reports OFFLINE for it; honestly reporting "can't reach this" is the
+    // behavior under test here, not a fake always-ONLINE response.
+    if (testData.data?.status !== 'OFFLINE') throw new Error('Expected camera status to be OFFLINE for an unreachable test IP');
+    console.log('✅ Camera stream test endpoint functional (unreachable IP honestly reported OFFLINE)');
 
     // 5. Test Virtual Counting Line Configuration
     console.log('\n5. Testing Counting Line coordinates validation...');

@@ -23,8 +23,13 @@ const CountingLineSchema = new Schema<ICountingLineDocument>(
       x2: { type: Number, required: true, min: 0, max: 1 },
       y2: { type: Number, required: true, min: 0, max: 1 },
     },
-    inDirection: { type: String, required: true, default: 'TOP_TO_BOTTOM' },
-    outDirection: { type: String, required: true, default: 'BOTTOM_TO_TOP' },
+    // "IN"/"OUT" labels for the two sides of the line, matching exactly what the
+    // owner-app's CountingLineCanvas shows/sends (apps/web-owner/src/components/
+    // CountingLineCanvas.tsx) and what the ai-worker's detect_line_crossing()
+    // expects (apps/ai-worker/src/geometry/line_crossing.py) - these must stay in
+    // sync across all three; see those files before changing this default.
+    inDirection: { type: String, required: true, default: 'IN' },
+    outDirection: { type: String, required: true, default: 'OUT' },
     enabled: { type: Boolean, default: true },
   },
   { timestamps: true }

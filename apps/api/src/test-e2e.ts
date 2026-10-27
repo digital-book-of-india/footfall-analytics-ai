@@ -203,11 +203,13 @@ async function runEndToEndMasterTest() {
       }),
     });
     const baselineData = await baselineRes.json();
-    // New occupancy = baseline (5) + entries (2) - exits (1) = 6
-    if (baselineData.data?.estimatedOccupancy !== 6) {
-      throw new Error(`Expected new occupancy of 6 after baseline reset to 5, got ${baselineData.data?.estimatedOccupancy}`);
+    // { baseline: 5 } means "5 people are verified in the store right now" (an
+    // absolute count, per the owner app's own modal copy) - estimatedOccupancy must
+    // come back as exactly 5, not 5 added on top of whatever was already counted today.
+    if (baselineData.data?.estimatedOccupancy !== 5) {
+      throw new Error(`Expected new occupancy of 5 after calibrating to 5, got ${baselineData.data?.estimatedOccupancy}`);
     }
-    console.log(`   • Baseline Drift Corrected: Baseline=5, New Estimated Occupancy=${baselineData.data?.estimatedOccupancy}`);
+    console.log(`   • Baseline Drift Corrected: Calibrated to 5, New Estimated Occupancy=${baselineData.data?.estimatedOccupancy}`);
 
     // CSV Export
     const csvRes = await fetch(`${baseUrl}/api/v1/shops/${shopId}/footfall/export.csv`, {

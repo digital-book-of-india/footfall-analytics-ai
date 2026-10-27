@@ -62,10 +62,22 @@ def detect_line_crossing(
     virtual_line: NormalizedLine,
     prev_point: Point2D,
     curr_point: Point2D,
-    in_direction_rule: str = "TOP_TO_BOTTOM",
+    in_direction: str = "IN",
+    out_direction: str = "OUT",
 ) -> Optional[str]:
     """Detects if a person trajectory segment (prev -> curr) crossed the virtual
-    counting line. If crossed, returns 'IN' or 'OUT' based on vector orientation.
+    counting line. If crossed, returns the `in_direction` or `out_direction` label.
+
+    The owner app's CountingLineCanvas draws its "in" arrow along the line's
+    perpendicular normal vector (-dy, dx) from A(x1,y1) to B(x2,y2), and labels
+    that side with whatever `inDirection` ("IN" or "OUT") the owner picked - the
+    same label is what gets saved and sent here. `_cross_product(line_start,
+    line_end, curr_point) > 0` is true for a point on exactly that (-dy, dx) side
+    (same (x,y) axes, same origin, same A->B order as the canvas), so using its
+    sign directly keeps the AI worker's count in sync with whatever the owner
+    actually sees drawn in the UI - no separate cardinal-direction mapping that
+    could silently disagree with it, and no dependency on which endpoint the
+    owner happened to drag first.
     """
     line_start = Point2D(virtual_line.x1, virtual_line.y1)
     line_end = Point2D(virtual_line.x2, virtual_line.y2)
@@ -83,11 +95,4 @@ def detect_line_crossing(
     if cp == 0:
         return None
 
-    if in_direction_rule == "TOP_TO_BOTTOM":
-        return "IN" if cp > 0 else "OUT"
-    elif in_direction_rule == "BOTTOM_TO_TOP":
-        return "IN" if cp < 0 else "OUT"
-    elif in_direction_rule == "LEFT_TO_RIGHT":
-        return "IN" if curr_point.x > prev_point.x else "OUT"
-    else:
-        return "IN" if curr_point.x < prev_point.x else "OUT"
+    return in_direction if cp > 0 else out_direction

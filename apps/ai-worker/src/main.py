@@ -102,7 +102,8 @@ def _watch_camera(camera: dict, detector: PersonDetector) -> None:
             coords = line["coordinates"]
             return (
                 NormalizedLine(coords["x1"], coords["y1"], coords["x2"], coords["y2"]),
-                line.get("inDirection", "TOP_TO_BOTTOM"),
+                line.get("inDirection", "IN"),
+                line.get("outDirection", "OUT"),
             )
 
         def should_restart() -> bool:
@@ -128,7 +129,8 @@ def _watch_camera(camera: dict, detector: PersonDetector) -> None:
         coords = counting_line["coordinates"]
         fixed_line = (
             NormalizedLine(coords["x1"], coords["y1"], coords["x2"], coords["y2"]),
-            counting_line.get("inDirection", "TOP_TO_BOTTOM"),
+            counting_line.get("inDirection", "IN"),
+            counting_line.get("outDirection", "OUT"),
         )
         stream_url = config["streamUrl"]
         connection_type = config["connectionType"]
@@ -180,14 +182,14 @@ def _watch_camera(camera: dict, detector: PersonDetector) -> None:
             line = current_counting_line()
             if line is None:
                 continue  # no enabled counting line yet — still watching, just not counting
-            virtual_line, in_direction_rule = line
+            virtual_line, in_direction, out_direction = line
 
             h, w = frame.shape[:2]
             detections = detector.detect(frame)
             centroids = [d.centroid for d in detections]
             confidence_by_centroid = {d.centroid: d.confidence for d in detections}
 
-            tracks = detector_tracker.update(centroids)
+            tracks = detector_tracker.update(centroids, frame_width=w)
 
             for track in tracks.values():
                 if track.prev_centroid is None:
@@ -196,7 +198,7 @@ def _watch_camera(camera: dict, detector: PersonDetector) -> None:
                 prev_norm = Point2D(track.prev_centroid[0] / w, track.prev_centroid[1] / h)
                 curr_norm = Point2D(track.centroid[0] / w, track.centroid[1] / h)
 
-                direction = detect_line_crossing(virtual_line, prev_norm, curr_norm, in_direction_rule)
+                direction = detect_line_crossing(virtual_line, prev_norm, curr_norm, in_direction, out_direction)
                 if direction is None:
                     continue
 

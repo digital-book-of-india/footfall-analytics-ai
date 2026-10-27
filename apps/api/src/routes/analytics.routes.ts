@@ -52,7 +52,15 @@ analyticsRouter.post('/shops/:shopId/footfall/occupancy-baseline', requireAuth, 
       sendError(res, 400, 'BAD_REQUEST', 'Baseline must be a non-negative number');
       return;
     }
-    const baseline = rawBaseline;
+    // The owner app's modal asks "the verified live count of people inside this store
+    // right now" - rawBaseline is that absolute number, not a value to store as-is.
+    // occupancyBaseline + todaysEntries - todaysExits must equal rawBaseline from this
+    // moment on, so back out what occupancyBaseline needs to be using today's count so
+    // far (computed with the CURRENT baseline, before we overwrite it). Storing
+    // rawBaseline directly double-counts everything that already happened today.
+    const todaysSummaryBefore = await AnalyticsService.getSummary(req.shop!);
+    const todaysNet = todaysSummaryBefore.entries - todaysSummaryBefore.exits;
+    const baseline = Math.max(0, rawBaseline - todaysNet);
 
     const previousBaseline = req.shop!.occupancyBaseline;
     req.shop!.occupancyBaseline = baseline;

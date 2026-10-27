@@ -28,19 +28,48 @@ class Track:
 
 
 class CentroidTracker:
-    def __init__(self, max_distance: float = 120.0, max_missed: int = 5):
+    # A fixed pixel distance only makes sense for one specific frame resolution and
+    # detection rate. A person near a 1080p/4K camera can cover 150-250px between two
+    # 0.5s-apart detection samples - well past a 120px fixed threshold - so the match
+    # radius is derived from the actual frame width each call instead (see `update`'s
+    # `frame_width`); DEFAULT_MAX_DISTANCE_FRACTION is "how much of the frame width a
+    # person may move between samples and still count as the same track".
+    DEFAULT_MAX_DISTANCE_FRACTION = 0.12
+    FALLBACK_MAX_DISTANCE = 120.0  # used only if frame_width is never supplied
+
+    def __init__(
+        self,
+        max_distance: Optional[float] = None,
+        max_distance_fraction: float = DEFAULT_MAX_DISTANCE_FRACTION,
+        max_missed: int = 5,
+    ):
+        # Explicit max_distance (e.g. from a test, or a caller that already knows its
+        # resolution) always wins; otherwise it's derived per-call from frame_width.
         self.max_distance = max_distance
+        self.max_distance_fraction = max_distance_fraction
         self.max_missed = max_missed
         self._next_id = 1
         self.tracks: Dict[int, Track] = {}
 
-    def update(self, centroids: List[Point]) -> Dict[int, Track]:
+    def update(self, centroids: List[Point], frame_width: Optional[float] = None) -> Dict[int, Track]:
         """Advances the tracker by one detection cycle.
+
+        `frame_width` (in the same pixel units as `centroids`) lets the match radius
+        scale with the stream's actual resolution; omit it to keep a fixed threshold
+        (either the explicit `max_distance` passed to `__init__`, or the old 120px
+        default), which is what the unit tests below do with small, fixed coordinates.
 
         Returns the full set of currently-live tracks (including ones just created
         this call, whose prev_centroid is None — callers should skip those for
         crossing checks, since a single point has no direction yet).
         """
+        if self.max_distance is not None:
+            effective_max_distance = self.max_distance
+        elif frame_width:
+            effective_max_distance = frame_width * self.max_distance_fraction
+        else:
+            effective_max_distance = self.FALLBACK_MAX_DISTANCE
+
         unmatched_detections = set(range(len(centroids)))
         matched_track_ids = set()
 
@@ -49,7 +78,7 @@ class CentroidTracker:
         for track_id, track in self.tracks.items():
             for det_idx in unmatched_detections:
                 dist = _euclidean(track.centroid, centroids[det_idx])
-                if dist <= self.max_distance:
+                if dist <= effective_max_distance:
                     candidate_pairs.append((dist, track_id, det_idx))
         candidate_pairs.sort(key=lambda p: p[0])
 
