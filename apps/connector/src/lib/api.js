@@ -1,5 +1,7 @@
 const { BACKEND_URL } = require("./config");
 
+const REQUEST_TIMEOUT_MS = 15 * 1000;
+
 async function postJson(path, body, token) {
   const res = await fetch(`${BACKEND_URL}${path}`, {
     method: "POST",
@@ -8,6 +10,7 @@ async function postJson(path, body, token) {
       ...(token ? { "x-connector-token": token } : {}),
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -21,6 +24,7 @@ async function postJson(path, body, token) {
 async function getJson(path, token) {
   const res = await fetch(`${BACKEND_URL}${path}`, {
     headers: token ? { "x-connector-token": token } : {},
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -48,4 +52,14 @@ function listCameras(token) {
   return getJson("/internal/v1/connectors/cameras", token);
 }
 
-module.exports = { pair, heartbeat, listCameras, BACKEND_URL };
+// Polled every JOB_POLL_INTERVAL_MS - hands back any pending PROBE/DISCOVER/WEBRTC jobs
+// the backend wants this connector's LAN to carry out (see apps/api's job queue).
+function listJobs(token) {
+  return getJson("/internal/v1/connectors/jobs", token);
+}
+
+function postJobResult(token, jobId, result) {
+  return postJson(`/internal/v1/connectors/jobs/${jobId}/result`, result, token);
+}
+
+module.exports = { pair, heartbeat, listCameras, listJobs, postJobResult, BACKEND_URL };

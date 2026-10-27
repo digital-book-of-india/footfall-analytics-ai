@@ -35,6 +35,27 @@ export function maskPassword(length = 8): string {
   return '•'.repeat(length);
 }
 
+/**
+ * Plain-language messages for camera.safeErrorCode, so owners see an actionable
+ * reason instead of a raw diagnostic code.
+ */
+const CAMERA_ERROR_MESSAGES: Record<string, string> = {
+  CONNECTOR_OFFLINE: 'The on-site connector for this camera is offline.',
+  CONNECTOR_TIMEOUT: 'The on-site connector did not respond in time.',
+  AUTH_FAILED: 'The camera rejected the login credentials.',
+  STREAM_PATH_NOT_FOUND: 'The stream path was not found on this camera.',
+  NO_RTSP_RESPONSE: 'The camera did not answer the RTSP request.',
+  NO_VIDEO: 'No video frames have been received recently.',
+  CONNECTION_REFUSED: 'The camera refused the connection.',
+  CONNECTION_FAILED: 'Could not reach the camera on the network.',
+  DEMO_CLIP_ACTIVE: 'Running on a demo test clip, not a live camera.'
+};
+
+export function cameraErrorMessage(code?: string | null): string | null {
+  if (!code) return null;
+  return CAMERA_ERROR_MESSAGES[code] || `Diagnostic code: ${code}`;
+}
+
 export function safeLog(message: string, data?: unknown): void {
   // Strips passwords or secrets before logging
   if (process.env.NODE_ENV !== 'production') {

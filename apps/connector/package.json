@@ -8,7 +8,7 @@
   "scripts": {
     "prestart": "node scripts/write-runtime-config.js",
     "start": "electron .",
-    "predist": "node scripts/write-runtime-config.js",
+    "predist": "node scripts/write-runtime-config.js && node scripts/prepare-python.js",
     "dist": "electron-builder --win --publish never",
     "prepublish": "node scripts/write-runtime-config.js"
   },
@@ -32,6 +32,11 @@
     "files": [
       "src/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      { "from": "build-resources/python", "to": "python" },
+      { "from": "build-resources/ai-worker", "to": "ai-worker" },
+      { "from": "build-resources/go2rtc", "to": "go2rtc" }
     ],
     "win": {
       "target": "nsis",

@@ -5,7 +5,8 @@ import { api } from '../services/apiClient';
 import { CameraStatusBadge } from '../components/StatusBadges';
 import { CountingLineCanvas } from '../components/CountingLineCanvas';
 import { ConnectorsPanel } from '../components/ConnectorsPanel';
-import { maskRtspUrl } from '../utils/security';
+import { ChannelsDialog } from '../components/ChannelsDialog';
+import { maskRtspUrl, cameraErrorMessage } from '../utils/security';
 import {
   VideoIcon,
   PlusIcon,
@@ -14,14 +15,16 @@ import {
   AlertTriangleIcon,
   SlidersIcon,
   ShieldIcon,
-  RadioIcon
+  RadioIcon,
+  ActivityIcon
 } from '../components/icons';
 
 interface CameraManagementPageProps {
   onOpenNewShopModal?: () => void;
+  onNavigateToLive?: () => void;
 }
 
-export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOpenNewShopModal }) => {
+export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOpenNewShopModal, onNavigateToLive }) => {
   const { selectedShop, isLoading: shopLoading } = useShop();
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>([]);
@@ -54,6 +57,13 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
   const [activeLineCamera, setActiveLineCamera] = useState<Camera | null>(null);
   const [activeLine, setActiveLine] = useState<CountingLine | null>(null);
   const [loadingLine, setLoadingLine] = useState<boolean>(false);
+
+  // Find Channels Dialog State
+  const [channelsCamera, setChannelsCamera] = useState<Camera | null>(null);
+
+  // Use Light Streams State
+  const [isSwitchingStreams, setIsSwitchingStreams] = useState<boolean>(false);
+  const [substreamMessage, setSubstreamMessage] = useState<string | null>(null);
 
   const handleOpenEditCamera = (camera: Camera) => {
     setEditingCamera(camera);
@@ -198,6 +208,25 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
     }
   };
 
+  const handleUseLightStreams = async () => {
+    if (!selectedShop) return;
+    setIsSwitchingStreams(true);
+    setSubstreamMessage(null);
+    setError(null);
+    try {
+      const result = await api.useSubstreams(selectedShop.id);
+      const skippedNote = result.skipped ? ` (${result.skipped} skipped)` : '';
+      setSubstreamMessage(
+        `${result.changed} of ${result.total} camera${result.total === 1 ? '' : 's'} now use the light stream${skippedNote}.`
+      );
+      fetchCameras();
+    } catch (err: any) {
+      setError(err.message || 'Failed to switch cameras to their light stream');
+    } finally {
+      setIsSwitchingStreams(false);
+    }
+  };
+
   const handleSaveCountingLine = async (lineData: any) => {
     if (!activeLineCamera) return;
     try {
@@ -258,6 +287,30 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
             <RefreshCwIcon size={18} className={isLoading ? 'animate-spin' : ''} />
           </button>
 
+          {onNavigateToLive && (
+            <button
+              type="button"
+              onClick={onNavigateToLive}
+              className="px-3.5 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+            >
+              <VideoIcon size={14} />
+              Live View
+            </button>
+          )}
+
+          {cameras.length > 1 && (
+            <button
+              type="button"
+              onClick={handleUseLightStreams}
+              disabled={isSwitchingStreams}
+              title="Switch Hikvision cameras to their lighter sub-stream"
+              className="px-3.5 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
+            >
+              <ActivityIcon size={14} className={isSwitchingStreams ? 'animate-pulse' : ''} />
+              {isSwitchingStreams ? 'Switching...' : 'Use light streams'}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => setShowAddModal(true)}
@@ -268,6 +321,12 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
           </button>
         </div>
       </div>
+
+      {substreamMessage && (
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3 text-xs text-blue-800">
+          {substreamMessage}
+        </div>
+      )}
 
       {/* Secret Handling Notice */}
       <div className="bg-slate-900 text-slate-200 p-4 rounded-2xl flex items-center justify-between gap-3 text-xs shadow-sm">
@@ -398,7 +457,7 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
                     {camera.safeErrorCode && (
                       <div className="p-2.5 bg-rose-50 rounded-xl text-rose-700 border border-rose-200 flex items-center gap-2">
                         <AlertTriangleIcon size={14} />
-                        <span>Diagnostic Code: {camera.safeErrorCode}</span>
+                        <span>{cameraErrorMessage(camera.safeErrorCode)}</span>
                       </div>
                     )}
 
@@ -446,6 +505,17 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
                     <RefreshCwIcon size={14} className={isTesting ? 'animate-spin' : ''} />
                     {isTesting ? 'Testing Stream...' : 'Test Connection'}
                   </button>
+
+                  {camera.connectorId && (
+                    <button
+                      type="button"
+                      onClick={() => setChannelsCamera(camera)}
+                      className="w-full sm:w-auto justify-center px-3.5 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+                    >
+                      <RadioIcon size={14} />
+                      Find channels
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -728,6 +798,15 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
             />
           )}
         </div>
+      )}
+
+      {/* Find Channels Dialog */}
+      {channelsCamera && (
+        <ChannelsDialog
+          camera={channelsCamera}
+          onClose={() => setChannelsCamera(null)}
+          onAdded={() => fetchCameras()}
+        />
       )}
     </div>
   );

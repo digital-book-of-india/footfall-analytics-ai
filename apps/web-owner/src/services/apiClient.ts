@@ -17,12 +17,20 @@ import {
   CreateCameraInput,
   CreateConnectorInput,
   UpdateCountingLineInput,
-  ResetOccupancyInput
+  ResetOccupancyInput,
+  ChannelScanResult,
+  IceServersResult,
+  UseSubstreamsResult,
+  LiveFrameResult
 } from '../types';
 import { maskRtspUrl } from '../utils/security';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || '/api/v1';
 const USE_MOCK_FALLBACK = (import.meta as any).env?.VITE_USE_MOCK_FALLBACK === 'true';
+
+// The connector installer is hosted outside the /api/v1 prefix (e.g. /downloads/connector),
+// by the same backend that serves the API — strip the /api/v1 suffix to get its origin.
+export const CONNECTOR_DOWNLOAD_URL = `${API_BASE.replace(/\/api\/v1\/?$/, '')}/downloads/connector/latest`;
 
 class ApiClient {
   private token: string | null = null;
@@ -275,6 +283,75 @@ class ApiClient {
       isReachable: res.isReachable !== undefined ? res.isReachable : res.accessible,
       accessible: res.accessible !== undefined ? res.accessible : res.isReachable
     };
+  }
+
+  // --- Find Channels / WebRTC Live View / Light Streams APIs ---
+  public async startChannelScan(cameraId: string): Promise<{ jobId: string }> {
+    return this.request<{ jobId: string }>(`/cameras/${cameraId}/channels/scan`, {
+      method: 'POST'
+    });
+  }
+
+  public async getChannelScan(cameraId: string, jobId: string): Promise<ChannelScanResult> {
+    return this.request<ChannelScanResult>(`/cameras/${cameraId}/channels/scan/${jobId}`);
+  }
+
+  public async addChannel(cameraId: string, path: string, name: string): Promise<Camera> {
+    return this.request<Camera>(`/cameras/${cameraId}/channels/add`, {
+      method: 'POST',
+      body: JSON.stringify({ path, name })
+    });
+  }
+
+  public async iceServers(): Promise<IceServersResult> {
+    return this.request<IceServersResult>('/webrtc/ice');
+  }
+
+  public async webrtcOffer(cameraId: string, sdp: string): Promise<{ answer: string }> {
+    return this.request<{ answer: string }>(`/cameras/${cameraId}/webrtc`, {
+      method: 'POST',
+      body: JSON.stringify({ sdp })
+    });
+  }
+
+  public async requestLive(cameraId: string): Promise<{ expiresAt: string }> {
+    return this.request<{ expiresAt: string }>(`/cameras/${cameraId}/live`, {
+      method: 'POST'
+    });
+  }
+
+  // Bypasses the generic JSON `request` helper: this endpoint returns a raw JPEG (or 204/404
+  // when no frame has arrived yet), not an { success, data } envelope.
+  public async fetchLiveFrame(cameraId: string): Promise<LiveFrameResult | null> {
+    if (this.forceMock) {
+      return null;
+    }
+    try {
+      const headers: Record<string, string> = {};
+      if (this.token) {
+        headers['Authorization'] = `Bearer ${this.token}`;
+      }
+      const response = await fetch(`${API_BASE}/cameras/${cameraId}/live.jpg`, {
+        cache: 'no-store',
+        headers
+      });
+      if (response.status === 204 || response.status === 404) {
+        return null;
+      }
+      if (!response.ok) {
+        return null;
+      }
+      const blob = await response.blob();
+      return { blob, at: response.headers.get('x-frame-at') };
+    } catch {
+      return null;
+    }
+  }
+
+  public async useSubstreams(shopId: string): Promise<UseSubstreamsResult> {
+    return this.request<UseSubstreamsResult>(`/shops/${shopId}/cameras/use-substream`, {
+      method: 'POST'
+    });
   }
 
   // --- Connector APIs ---
@@ -757,6 +834,81 @@ class ApiClient {
           : 'RTSP handshake and frame grab verified successfully',
         testedAt: new Date().toISOString()
       };
+    }
+
+    // 8b. /cameras/:cameraId/channels/scan (POST - start scan)
+    const scanStartMatch = endpoint.match(/^\/cameras\/([^/?]+)\/channels\/scan(?:\?.*)?$/);
+    if (scanStartMatch && method === 'POST') {
+      const cameraId = scanStartMatch[1];
+      const cam = cameras.find(c => c.id === cameraId);
+      if (cam) verifyShopOwnership(cam.shopId);
+      return { jobId: 'job_' + Math.random().toString(36).substring(2, 8) };
+    }
+
+    // 8c. /cameras/:cameraId/channels/scan/:jobId (GET - poll scan result)
+    const scanPollMatch = endpoint.match(/^\/cameras\/([^/?]+)\/channels\/scan\/([^/?]+)(?:\?.*)?$/);
+    if (scanPollMatch && method === 'GET') {
+      const cameraId = scanPollMatch[1];
+      const cam = cameras.find(c => c.id === cameraId);
+      if (cam) verifyShopOwnership(cam.shopId);
+      return {
+        status: 'DONE',
+        channels: [
+          { path: '/Streaming/Channels/101', label: 'Channel 1', thumbnail: null, alreadyAdded: false }
+        ],
+        debug: 'mock scan (no real connector in demo mode)'
+      };
+    }
+
+    // 8d. /cameras/:cameraId/channels/add (POST)
+    const channelAddMatch = endpoint.match(/^\/cameras\/([^/?]+)\/channels\/add(?:\?.*)?$/);
+    if (channelAddMatch && method === 'POST') {
+      const sourceCameraId = channelAddMatch[1];
+      const source = cameras.find(c => c.id === sourceCameraId);
+      if (source) verifyShopOwnership(source.shopId);
+      const newCam: Camera = {
+        id: 'cam_' + Math.random().toString(36).substring(2, 8),
+        shopId: source?.shopId || 'shop_001',
+        connectorId: source?.connectorId || null,
+        name: (body.name || 'New Channel').trim(),
+        connectionType: 'RTSP',
+        status: 'NEEDS_SETUP',
+        lastHeartbeatAt: null,
+        safeErrorCode: null,
+        rtspUrlMasked: 'rtsp://camera' + (body.path || '/channel'),
+        createdAt: new Date().toISOString()
+      };
+      cameras.push(newCam);
+      this.setItem('dbi_mock_cameras', JSON.stringify(cameras));
+      return newCam;
+    }
+
+    // 8e. /webrtc/ice (GET) - STUN-only in demo mode, no real TURN credentials
+    if (endpoint === '/webrtc/ice' && method === 'GET') {
+      return { iceServers: [{ urls: ['stun:stun.cloudflare.com:3478'] }], turn: false };
+    }
+
+    // 8f. /cameras/:cameraId/webrtc (POST) - no real connector in demo mode
+    const webrtcOfferMatch = endpoint.match(/^\/cameras\/([^/?]+)\/webrtc(?:\?.*)?$/);
+    if (webrtcOfferMatch && method === 'POST') {
+      const err = new Error('[CONNECTOR_OFFLINE] No on-site connector available in demo mode');
+      (err as any).isHttpError = true;
+      (err as any).status = 409;
+      throw err;
+    }
+
+    // 8g. /cameras/:cameraId/live (POST) - keep-alive for the picture fallback
+    const liveMatch = endpoint.match(/^\/cameras\/([^/?]+)\/live(?:\?.*)?$/);
+    if (liveMatch && method === 'POST') {
+      return { expiresAt: new Date(Date.now() + 30000).toISOString() };
+    }
+
+    // 8h. /shops/:shopId/cameras/use-substream (POST)
+    const substreamMatch = endpoint.match(/^\/shops\/([^/?]+)\/cameras\/use-substream(?:\?.*)?$/);
+    if (substreamMatch && method === 'POST') {
+      const shopId = substreamMatch[1];
+      verifyShopOwnership(shopId);
+      return { total: cameras.filter(c => c.shopId === shopId).length, changed: 0, skipped: 0 };
     }
 
     // 9. /cameras/:cameraId/counting-line (GET & PUT)

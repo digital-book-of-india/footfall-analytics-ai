@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage } = require("electron");
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, powerSaveBlocker } = require("electron");
 const path = require("path");
 const log = require("electron-log");
 const { autoUpdater } = require("electron-updater");
@@ -7,6 +7,9 @@ const store = require("./lib/store");
 const api = require("./lib/api");
 const heartbeat = require("./lib/heartbeat");
 const cameraSync = require("./lib/cameraSync");
+const probe = require("./lib/probe");
+const aiWorker = require("./lib/aiWorker");
+const go2rtc = require("./lib/go2rtc");
 const { UPDATE_CHECK_INTERVAL_MS, BACKEND_URL } = require("./lib/config");
 
 log.initialize?.();
@@ -16,6 +19,7 @@ autoUpdater.logger = log;
 heartbeat.on("error", (err) => log.error("Heartbeat failed:", err.message));
 cameraSync.on("error", (err) => log.error("Camera sync failed:", err.message));
 cameraSync.on("synced", () => updateTrayMenu());
+probe.on("error", (err) => log.error("Job poll failed:", err.message));
 
 let identity = null; // { connectorId, connectorToken, shopId, shopName }
 let pairingWindow = null;
@@ -51,10 +55,13 @@ function showPairingWindow() {
 
 function startServices() {
   cameraSync.start(getToken);
+  probe.start(getToken);
+  aiWorker.start(identity);
   heartbeat.start(getToken, () => {
     // Backend revoked/forgot this connector - clear local identity and ask to re-pair.
     identity = null;
     store.clear();
+    stopServices();
     updateTrayMenu();
     showPairingWindow();
   });
@@ -64,6 +71,9 @@ function startServices() {
 function stopServices() {
   heartbeat.stop();
   cameraSync.stop();
+  probe.stop();
+  aiWorker.stop();
+  go2rtc.stop();
 }
 
 function updateTrayMenu() {
@@ -130,6 +140,7 @@ function setupAutoUpdater() {
 
 app.whenReady().then(() => {
   log.info(`DBI Footfall Connector ${app.getVersion()} starting, backend=${BACKEND_URL}`);
+  powerSaveBlocker.start("prevent-app-suspension");
   createTray();
 
   identity = store.load();

@@ -8,12 +8,21 @@ import numpy as np
 
 
 class StreamReader:
+    MAX_OPEN_BACKOFF_SECONDS = 60.0
+
     def __init__(self, stream_url: str, reconnect_delay: float = 5.0, connect_timeout_ms: int = 5000):
         self.stream_url = stream_url
         self.reconnect_delay = reconnect_delay
         self.connect_timeout_ms = connect_timeout_ms
         self._cap: Optional[cv2.VideoCapture] = None
         self.last_frame_at: Optional[float] = None
+        self._open_failures = 0
+
+    def _open_backoff(self) -> float:
+        # Some cameras (Hikvision in particular) lock out a client that keeps failing to
+        # open; back off instead of hammering retries, which only makes the lockout worse.
+        delay = self.reconnect_delay * (2 ** max(0, self._open_failures - 1))
+        return min(delay, self.MAX_OPEN_BACKOFF_SECONDS)
 
     def _open(self) -> bool:
         cap = cv2.VideoCapture(self.stream_url)
@@ -42,11 +51,15 @@ class StreamReader:
         is_local_file = not self.stream_url.lower().startswith(('rtsp://', 'http://', 'https://'))
 
         while not stop_flag():
-            if self._cap is None and not self._open():
-                if on_fail:
-                    on_fail()
-                time.sleep(self.reconnect_delay)
-                continue
+            if self._cap is None:
+                if self._open():
+                    self._open_failures = 0
+                else:
+                    self._open_failures += 1
+                    if on_fail:
+                        on_fail()
+                    time.sleep(self._open_backoff())
+                    continue
 
             ok, frame = self._cap.read()  # type: ignore[union-attr]
             if not ok or frame is None:

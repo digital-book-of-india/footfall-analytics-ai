@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Connector, ConnectorWithPairingCode } from '../types';
-import { api } from '../services/apiClient';
+import { api, CONNECTOR_DOWNLOAD_URL } from '../services/apiClient';
 import {
   PlusIcon,
   RefreshCwIcon,
@@ -127,7 +127,7 @@ export const ConnectorsPanel: React.FC<ConnectorsPanelProps> = ({ shopId }) => {
           </p>
         </div>
         <a
-          href="https://github.com/digital-book-of-india/footfall-analytics-ai/releases/latest"
+          href={CONNECTOR_DOWNLOAD_URL}
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-xl transition shrink-0"

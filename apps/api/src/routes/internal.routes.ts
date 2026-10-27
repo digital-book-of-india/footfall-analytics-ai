@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { requireAiServiceSecret } from '../middleware/aiAuth.js';
 import { FootfallEventModel } from '../models/FootfallEvent.js';
 import { FootfallAggregateModel } from '../models/FootfallAggregate.js';
-import { CameraModel } from '../models/Camera.js';
+import { CameraModel, ICameraDocument } from '../models/Camera.js';
 import { CountingLineModel } from '../models/CountingLine.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { resolveDecryptedStreamUrl } from '../utils/cameraStream.js';
@@ -39,77 +39,111 @@ async function bumpHourlyAggregate(shopId: string, direction: 'IN' | 'OUT', occu
 }
 
 /**
+ * Shared event-ingestion core (dedup/idempotency, hourly aggregate bump, camera
+ * lastHeartbeatAt touch). Used by both the standalone AI-service-secret path below and
+ * the connector-scoped /internal/v1/connectors/ai/events route — one event schema, two
+ * auth boundaries.
+ */
+export async function ingestFootfallEvents(
+  eventsToProcess: IngestFootfallEventRequest[]
+): Promise<IngestEventResponseData> {
+  let processed = 0;
+  let ignoredDuplicates = 0;
+  const touchedCameras = new Set<string>();
+
+  for (const evt of eventsToProcess) {
+    const { eventId, shopId, cameraId, direction, occurredAt, confidence, modelVersion } = evt;
+
+    if (!eventId || !shopId || !cameraId || !direction) {
+      continue;
+    }
+
+    if (direction !== 'IN' && direction !== 'OUT') {
+      continue;
+    }
+
+    try {
+      await FootfallEventModel.create({
+        eventId,
+        shopId,
+        cameraId,
+        direction,
+        occurredAt: occurredAt ? new Date(occurredAt) : new Date(),
+        confidence: typeof confidence === 'number' ? confidence : 0.9,
+        modelVersion: modelVersion || 'yolo-crossing-v1.0',
+      });
+      processed++;
+      touchedCameras.add(cameraId);
+      await bumpHourlyAggregate(shopId, direction, occurredAt ? new Date(occurredAt) : new Date());
+    } catch (insertErr: any) {
+      // E11000 duplicate key error means this eventId was already ingested!
+      if (insertErr.code === 11000) {
+        ignoredDuplicates++;
+      } else {
+        console.error(`[Event Ingestion] Unexpected error for eventId ${eventId}:`, insertErr);
+      }
+    }
+  }
+
+  // Refresh lastHeartbeatAt for cameras producing events
+  if (touchedCameras.size > 0) {
+    await CameraModel.updateMany(
+      { _id: { $in: Array.from(touchedCameras) } },
+      {
+        $set: {
+          status: 'ONLINE',
+          lastHeartbeatAt: new Date()
+        }
+      }
+    );
+  }
+
+  return { processed, ignoredDuplicates };
+}
+
+/** Parses the three request shapes the AI worker may send (single/array/{events:[]}). */
+export function parseIngestEventsBody(body: any): IngestFootfallEventRequest[] | null {
+  if (Array.isArray(body)) return body;
+  if (body && body.events && Array.isArray(body.events)) return body.events;
+  if (body && body.eventId) return [body as IngestFootfallEventRequest];
+  return null;
+}
+
+/**
+ * Shared health-heartbeat core. Used by both the standalone path below and the
+ * connector-scoped /internal/v1/connectors/ai/health route.
+ */
+export async function recordCameraHealth(
+  cameraId: string,
+  updates: { status?: AIHeartbeatRequest['status']; safeErrorCode?: string }
+): Promise<ICameraDocument | null> {
+  const camera = await CameraModel.findById(cameraId);
+  if (!camera) return null;
+
+  camera.lastHeartbeatAt = new Date();
+  if (updates.status) {
+    camera.status = updates.status;
+  }
+  camera.safeErrorCode = updates.safeErrorCode || undefined;
+
+  await camera.save();
+  return camera;
+}
+
+/**
  * POST /internal/v1/footfall/events
  * Ingest high-frequency crossing events with strict deduplication / idempotency
  */
 internalRouter.post('/events', async (req: Request, res: Response) => {
   try {
-    const body = req.body;
-    let eventsToProcess: IngestFootfallEventRequest[] = [];
-
-    if (Array.isArray(body)) {
-      eventsToProcess = body;
-    } else if (body.events && Array.isArray(body.events)) {
-      eventsToProcess = body.events;
-    } else if (body.eventId) {
-      eventsToProcess = [body as IngestFootfallEventRequest];
-    } else {
+    const eventsToProcess = parseIngestEventsBody(req.body);
+    if (!eventsToProcess) {
       sendError(res, 400, 'BAD_REQUEST', 'Request body must contain eventId or events array');
       return;
     }
 
-    let processed = 0;
-    let ignoredDuplicates = 0;
-    const touchedCameras = new Set<string>();
-
-    for (const evt of eventsToProcess) {
-      const { eventId, shopId, cameraId, direction, occurredAt, confidence, modelVersion } = evt;
-
-      if (!eventId || !shopId || !cameraId || !direction) {
-        continue;
-      }
-
-      if (direction !== 'IN' && direction !== 'OUT') {
-        continue;
-      }
-
-      try {
-        await FootfallEventModel.create({
-          eventId,
-          shopId,
-          cameraId,
-          direction,
-          occurredAt: occurredAt ? new Date(occurredAt) : new Date(),
-          confidence: typeof confidence === 'number' ? confidence : 0.9,
-          modelVersion: modelVersion || 'yolo-crossing-v1.0',
-        });
-        processed++;
-        touchedCameras.add(cameraId);
-        await bumpHourlyAggregate(shopId, direction, occurredAt ? new Date(occurredAt) : new Date());
-      } catch (insertErr: any) {
-        // E11000 duplicate key error means this eventId was already ingested!
-        if (insertErr.code === 11000) {
-          ignoredDuplicates++;
-        } else {
-          console.error(`[Event Ingestion] Unexpected error for eventId ${eventId}:`, insertErr);
-        }
-      }
-    }
-
-    // Refresh lastHeartbeatAt for cameras producing events
-    if (touchedCameras.size > 0) {
-      await CameraModel.updateMany(
-        { _id: { $in: Array.from(touchedCameras) } },
-        { 
-          $set: { 
-            status: 'ONLINE', 
-            lastHeartbeatAt: new Date() 
-          } 
-        }
-      );
-    }
-
-    sendSuccess<IngestEventResponseData>(res, { processed, ignoredDuplicates });
+    const result = await ingestFootfallEvents(eventsToProcess);
+    sendSuccess<IngestEventResponseData>(res, result);
   } catch (err: any) {
     sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to ingest footfall events');
   }
@@ -128,23 +162,11 @@ internalRouter.post('/health', async (req: Request, res: Response) => {
       return;
     }
 
-    const camera = await CameraModel.findById(cameraId);
+    const camera = await recordCameraHealth(cameraId, { status, safeErrorCode: safeErrorCode || message });
     if (!camera) {
       sendError(res, 404, 'NOT_FOUND', `Camera '${cameraId}' not found`);
       return;
     }
-
-    camera.lastHeartbeatAt = new Date();
-    if (status) {
-      camera.status = status;
-    }
-    if (safeErrorCode || message) {
-      camera.safeErrorCode = safeErrorCode || message;
-    } else {
-      camera.safeErrorCode = undefined;
-    }
-
-    await camera.save();
 
     sendSuccess(res, {
       acknowledged: true,

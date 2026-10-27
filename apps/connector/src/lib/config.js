@@ -13,8 +13,9 @@ try {
 
 const BACKEND_URL = (runtimeConfig.backendUrl || "http://localhost:4000").replace(/\/+$/, "");
 
-const HEARTBEAT_INTERVAL_MS = 45 * 1000;
+const HEARTBEAT_INTERVAL_MS = 20 * 1000;
 const CAMERA_SYNC_INTERVAL_MS = 60 * 1000;
+const JOB_POLL_INTERVAL_MS = 3 * 1000;
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 function userDataPath(...segments) {
@@ -25,6 +26,7 @@ module.exports = {
   BACKEND_URL,
   HEARTBEAT_INTERVAL_MS,
   CAMERA_SYNC_INTERVAL_MS,
+  JOB_POLL_INTERVAL_MS,
   UPDATE_CHECK_INTERVAL_MS,
   STORE_FILE: () => userDataPath("connector-store.json"),
 };

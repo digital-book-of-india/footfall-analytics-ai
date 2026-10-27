@@ -1,5 +1,6 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { Connector, ConnectorStatus } from '@dbi/shared-types';
+import { isConnectorOnline } from '../services/connectorManager.js';
 
 export interface IConnectorDocument extends Document {
   shopId: Types.ObjectId;
@@ -36,14 +37,8 @@ const ConnectorSchema = new Schema<IConnectorDocument>(
   { timestamps: true }
 );
 
-/** A paired connector counts as online only if it heartbeat within the stale window — never fake "online". */
-const CONNECTOR_STALE_MS = 2 * 60 * 1000;
-
 ConnectorSchema.methods.toResponseObject = function (): Connector {
-  const online =
-    this.status === 'PAIRED' &&
-    Boolean(this.lastHeartbeatAt) &&
-    Date.now() - new Date(this.lastHeartbeatAt).getTime() <= CONNECTOR_STALE_MS;
+  const online = isConnectorOnline({ status: this.status, lastHeartbeatAt: this.lastHeartbeatAt });
 
   return {
     id: this._id.toString(),

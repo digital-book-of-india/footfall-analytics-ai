@@ -9,6 +9,9 @@ import { requireAuth, requireShopAccess, AuthenticatedRequest } from '../middlew
 import { encryptCredential, sanitizeStreamUrl } from '../utils/crypto.js';
 import { resolveDecryptedStreamUrl } from '../utils/cameraStream.js';
 import { probeStreamReachability } from '../utils/streamProbe.js';
+import { isConnectorOnline } from '../services/connectorManager.js';
+import { enqueueJob, waitForJob, peekJob, isJobDone } from '../services/connectorJobs.js';
+import { requestLive, getFrame } from '../services/connectorLive.js';
 import { 
   CreateCameraRequest, 
   SetCountingLineRequest, 
@@ -87,6 +90,67 @@ cameraRouter.get('/shops/:shopId/cameras', requireAuth, requireShopAccess, async
     sendSuccess<Camera[]>(res, cameras.map((c) => c.toResponseObject()));
   } catch (err: any) {
     sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to fetch cameras');
+  }
+});
+
+/**
+ * POST /api/v1/shops/:shopId/cameras/use-substream
+ * "Use light streams": for every connector-backed Hikvision camera on this shop whose
+ * path is the heavy main stream (/Streaming/Channels/N01), verify the lighter sub-stream
+ * (N02) actually answers with video via the Connector, and only then switch to it.
+ * Cameras whose connector is offline, or whose sub-stream doesn't verify, are left alone.
+ */
+cameraRouter.post('/shops/:shopId/cameras/use-substream', requireAuth, requireShopAccess, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const cameras = await CameraModel.find({ shopId: req.shop!._id, connectorId: { $ne: null } });
+
+    let total = 0;
+    let changed = 0;
+    let skipped = 0;
+
+    for (const camera of cameras) {
+      let streamUrl: string;
+      let parsed: URL;
+      try {
+        streamUrl = resolveDecryptedStreamUrl(camera);
+        parsed = new URL(streamUrl);
+      } catch {
+        continue;
+      }
+
+      const match = parsed.pathname.match(/^(\/Streaming\/Channels\/\d+)01$/i);
+      if (!match) continue;
+
+      total++;
+
+      const connector = await ConnectorModel.findById(camera.connectorId);
+      if (!connector || !isConnectorOnline(connector)) {
+        skipped++;
+        continue;
+      }
+
+      const subParsed = new URL(streamUrl);
+      subParsed.pathname = `${match[1]}02`;
+      const subStreamUrl = subParsed.toString();
+
+      const jobId = enqueueJob(camera.connectorId!.toString(), camera._id.toString(), 'PROBE', subStreamUrl);
+      const result = await waitForJob(jobId, 14000);
+
+      if (result && (result as any).reachable) {
+        camera.encryptedStreamUrl = encryptCredential(subStreamUrl);
+        camera.sanitizedStreamUrl = sanitizeStreamUrl(subStreamUrl);
+        camera.status = 'CONNECTING';
+        camera.safeErrorCode = undefined;
+        await camera.save();
+        changed++;
+      } else {
+        skipped++;
+      }
+    }
+
+    sendSuccess(res, { total, changed, skipped });
+  } catch (err: any) {
+    sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to switch to light streams');
   }
 });
 
@@ -210,6 +274,31 @@ cameraRouter.post('/cameras/:cameraId/test', requireAuth, async (req: Authentica
         errorCode = 'CLIP_FILE_NOT_FOUND';
         message = 'Test clip file not found at the configured path';
       }
+    } else if (camera.connectorId) {
+      // Connector-backed camera: the API can't reach the shop's LAN itself, so it asks
+      // the paired Connector to do the real RTSP check and waits a bounded time for the
+      // answer. 12s is deliberately shorter than the owner app's own request timeout so
+      // a stalled connector surfaces as CONNECTOR_TIMEOUT, not a generic network error.
+      const connector = await ConnectorModel.findById(camera.connectorId);
+      if (!connector || !isConnectorOnline(connector)) {
+        reachable = false;
+        errorCode = 'CONNECTOR_OFFLINE';
+        message = 'The on-site Connector for this camera is offline';
+      } else {
+        const jobId = enqueueJob(camera.connectorId.toString(), camera._id.toString(), 'PROBE', streamUrl);
+        const result = await waitForJob(jobId, 12000);
+        if (!result) {
+          reachable = false;
+          errorCode = 'CONNECTOR_TIMEOUT';
+          message = 'The Connector did not respond in time';
+        } else {
+          reachable = Boolean((result as any).reachable);
+          errorCode = (result as any).errorCode;
+          message = reachable
+            ? 'RTSP stream connection established and reachable'
+            : `Stream unreachable: ${errorCode || 'UNKNOWN_ERROR'}`;
+        }
+      }
     } else {
       const probe = await probeStreamReachability(streamUrl);
       reachable = probe.reachable;
@@ -268,6 +357,227 @@ cameraRouter.get('/cameras/:cameraId/health', requireAuth, async (req: Authentic
     });
   } catch (err: any) {
     sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to inspect camera health');
+  }
+});
+
+/**
+ * POST /api/v1/cameras/:cameraId/channels/scan
+ * "Find channels": asks this camera's Connector to scan the Hikvision/Dahua recorder
+ * for every channel that answers with real video. Async — can take up to ~a minute.
+ */
+cameraRouter.post('/cameras/:cameraId/channels/scan', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const context = await checkCameraAccess(req, res);
+    if (!context) return;
+    const { camera } = context;
+
+    if (!camera.connectorId) {
+      sendError(res, 400, 'NO_CONNECTOR', 'This camera has no on-site Connector to scan with');
+      return;
+    }
+    const connector = await ConnectorModel.findById(camera.connectorId);
+    if (!connector || !isConnectorOnline(connector)) {
+      sendError(res, 409, 'CONNECTOR_OFFLINE', 'The on-site Connector for this camera is offline');
+      return;
+    }
+
+    const streamUrl = resolveDecryptedStreamUrl(camera);
+    const jobId = enqueueJob(camera.connectorId.toString(), camera._id.toString(), 'DISCOVER', streamUrl);
+    sendSuccess(res, { jobId }, 202);
+  } catch (err: any) {
+    sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to start channel scan');
+  }
+});
+
+/**
+ * GET /api/v1/cameras/:cameraId/channels/scan/:jobId
+ * Polled by the owner app while the Connector's scan is running.
+ */
+cameraRouter.get('/cameras/:cameraId/channels/scan/:jobId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const context = await checkCameraAccess(req, res);
+    if (!context) return;
+    const { camera } = context;
+
+    const job = peekJob(req.params.jobId);
+    if (!isJobDone(job)) {
+      sendSuccess(res, { status: 'PENDING' });
+      return;
+    }
+
+    const result = (job!.result || {}) as { channels?: any[]; error?: string; debug?: string };
+
+    // Flag channels that are already registered as cameras on this shop, keyed by
+    // host:port+path so a re-scan doesn't suggest adding the same channel twice.
+    const sourceUrl = resolveDecryptedStreamUrl(camera);
+    let sourceHost = '';
+    let sourcePort = '';
+    try {
+      const u = new URL(sourceUrl);
+      sourceHost = u.hostname;
+      sourcePort = u.port;
+    } catch {
+      // non-URL stream value; dedup just won't match anything, which is safe
+    }
+
+    const siblingCameras = await CameraModel.find({ shopId: camera.shopId });
+    const existingPathKeys = new Set<string>();
+    for (const sibling of siblingCameras) {
+      try {
+        const u = new URL(resolveDecryptedStreamUrl(sibling));
+        existingPathKeys.add(`${u.hostname}:${u.port}${u.pathname}${u.search}`);
+      } catch {
+        // skip non-URL stream values (e.g. TEST_CLIP paths)
+      }
+    }
+
+    const channels = (result.channels || []).map((ch: any) => ({
+      ...ch,
+      alreadyAdded: existingPathKeys.has(`${sourceHost}:${sourcePort}${ch.path}`),
+    }));
+
+    sendSuccess(res, {
+      status: 'DONE',
+      channels,
+      error: result.error,
+      debug: result.debug ? result.debug.slice(0, 300) : undefined,
+    });
+  } catch (err: any) {
+    sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to fetch channel scan result');
+  }
+});
+
+/**
+ * POST /api/v1/cameras/:cameraId/channels/add
+ * Adds one scanned channel as a new camera, cloning the source camera's host/credentials.
+ */
+cameraRouter.post('/cameras/:cameraId/channels/add', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const context = await checkCameraAccess(req, res);
+    if (!context) return;
+    const { camera } = context;
+
+    const { path, name } = req.body as { path?: string; name?: string };
+    if (!path || typeof path !== 'string' || !path.startsWith('/') || path.length > 300 || path.includes('#')) {
+      sendError(res, 400, 'BAD_REQUEST', 'A valid channel path is required');
+      return;
+    }
+
+    let newUrl: string;
+    try {
+      const u = new URL(resolveDecryptedStreamUrl(camera));
+      const [pathname, query] = path.split('?');
+      u.pathname = pathname;
+      u.search = query ? `?${query}` : '';
+      newUrl = u.toString();
+    } catch {
+      sendError(res, 400, 'BAD_REQUEST', 'Source camera does not have a URL-style stream to clone');
+      return;
+    }
+
+    const newCamera = await CameraModel.create({
+      shopId: camera.shopId,
+      connectorId: camera.connectorId,
+      name: (name && name.trim()) || camera.name,
+      connectionType: camera.connectionType,
+      encryptedStreamUrl: encryptCredential(newUrl),
+      sanitizedStreamUrl: sanitizeStreamUrl(newUrl),
+      encryptedCredentials: camera.encryptedCredentials,
+      hasCredentials: camera.hasCredentials,
+      status: 'CONNECTING',
+    });
+
+    sendSuccess<Camera>(res, newCamera.toResponseObject(), 201);
+  } catch (err: any) {
+    sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to add channel');
+  }
+});
+
+/**
+ * POST /api/v1/cameras/:cameraId/webrtc
+ * Relays a browser's WebRTC SDP offer to the camera's Connector (which answers via a
+ * bundled go2rtc) and returns the answer. 15s bound, same chained-timeout reasoning as /test.
+ */
+cameraRouter.post('/cameras/:cameraId/webrtc', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const context = await checkCameraAccess(req, res);
+    if (!context) return;
+    const { camera } = context;
+
+    const { sdp } = req.body as { sdp?: string };
+    if (!sdp || typeof sdp !== 'string' || !sdp.startsWith('v=0') || sdp.length > 20000) {
+      sendError(res, 400, 'BAD_REQUEST', 'A valid SDP offer is required');
+      return;
+    }
+    if (!camera.connectorId) {
+      sendError(res, 400, 'NO_CONNECTOR', 'This camera has no on-site Connector for WebRTC live view');
+      return;
+    }
+    const connector = await ConnectorModel.findById(camera.connectorId);
+    if (!connector || !isConnectorOnline(connector)) {
+      sendError(res, 409, 'CONNECTOR_OFFLINE', 'The on-site Connector for this camera is offline');
+      return;
+    }
+
+    const streamUrl = resolveDecryptedStreamUrl(camera);
+    const jobId = enqueueJob(camera.connectorId.toString(), camera._id.toString(), 'WEBRTC', streamUrl, { sdp });
+    const result = await waitForJob(jobId, 15000);
+
+    if (!result) {
+      sendError(res, 502, 'CONNECTOR_TIMEOUT', 'The Connector did not answer the WebRTC offer in time');
+      return;
+    }
+    const answer = (result as any).answer;
+    if (!answer) {
+      sendError(res, 502, 'WEBRTC_FAILED', (result as any).error || 'The Connector could not start a WebRTC stream');
+      return;
+    }
+
+    sendSuccess(res, { answer });
+  } catch (err: any) {
+    sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to relay WebRTC offer');
+  }
+});
+
+/**
+ * POST /api/v1/cameras/:cameraId/live
+ * Marks this camera as "being watched" for 30s — the picture-fallback keep-alive.
+ */
+cameraRouter.post('/cameras/:cameraId/live', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const context = await checkCameraAccess(req, res);
+    if (!context) return;
+    requestLive(context.camera._id.toString());
+    sendSuccess(res, { expiresAt: new Date(Date.now() + 30000).toISOString() });
+  } catch (err: any) {
+    sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to request live view');
+  }
+});
+
+/**
+ * GET /api/v1/cameras/:cameraId/live.jpg
+ * Latest pushed frame for this camera. 204 (not 404) when none has arrived yet — "no
+ * picture yet" is not an error.
+ */
+cameraRouter.get('/cameras/:cameraId/live.jpg', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const context = await checkCameraAccess(req, res);
+    if (!context) return;
+
+    const frame = getFrame(context.camera._id.toString());
+    if (!frame) {
+      res.status(204).end();
+      return;
+    }
+
+    res.set({
+      'Cache-Control': 'no-store',
+      'x-frame-at': new Date(frame.at).toISOString(),
+      'Content-Type': 'image/jpeg',
+    });
+    res.status(200).send(frame.jpeg);
+  } catch (err: any) {
+    sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to fetch live frame');
   }
 });
 

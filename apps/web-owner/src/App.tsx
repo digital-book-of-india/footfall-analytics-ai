@@ -4,6 +4,7 @@ import { ShopProvider, useShop } from './context/ShopContext';
 import { Navbar } from './components/Navbar';
 import { DashboardPage } from './pages/DashboardPage';
 import { CameraManagementPage } from './pages/CameraManagementPage';
+import { LiveViewPage } from './pages/LiveViewPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { ShopProfilePage } from './pages/ShopProfilePage';
 import { AuthPage } from './pages/AuthPage';
@@ -15,7 +16,7 @@ const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const { isLoading: shopLoading } = useShop();
 
-  const [currentTab, setCurrentTab] = useState<'dashboard' | 'cameras' | 'reports' | 'settings'>('dashboard');
+  const [currentTab, setCurrentTab] = useState<'dashboard' | 'cameras' | 'live' | 'reports' | 'settings'>('dashboard');
   const [showNewShopModal, setShowNewShopModal] = useState<boolean>(false);
 
   if (authLoading) {
@@ -58,8 +59,12 @@ const AppContent: React.FC = () => {
           />
         )}
         {currentTab === 'cameras' && (
-          <CameraManagementPage onOpenNewShopModal={() => setShowNewShopModal(true)} />
+          <CameraManagementPage
+            onOpenNewShopModal={() => setShowNewShopModal(true)}
+            onNavigateToLive={() => setCurrentTab('live')}
+          />
         )}
+        {currentTab === 'live' && <LiveViewPage />}
         {currentTab === 'reports' && (
           <ReportsPage onOpenNewShopModal={() => setShowNewShopModal(true)} />
         )}

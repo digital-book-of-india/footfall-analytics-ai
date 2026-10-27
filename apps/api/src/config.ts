@@ -19,4 +19,8 @@ export const config = {
     .filter(Boolean),
   connectorDownloadsDir: process.env.CONNECTOR_DOWNLOADS_DIR || path.resolve(process.cwd(), 'downloads/connector'),
   cameraHeartbeatTimeoutSec: parseInt(process.env.CAMERA_HEARTBEAT_TIMEOUT_SEC || '90', 10),
+  // Optional: Cloudflare Realtime TURN credentials for WebRTC live view behind strict
+  // NAT/firewalls. Unset -> STUN-only (works for most shop networks, just not all).
+  cfTurnKeyId: process.env.CF_TURN_KEY_ID || '',
+  cfTurnApiToken: process.env.CF_TURN_API_TOKEN || '',
 };

@@ -1,0 +1,16 @@
+[Unit]
+Description=DBI Footfall AI Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dbi
+WorkingDirectory=/opt/footfall/apps/ai-worker/src
+EnvironmentFile=/opt/footfall/apps/ai-worker/.env
+ExecStart=/opt/footfall/apps/ai-worker/.venv/bin/python main.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

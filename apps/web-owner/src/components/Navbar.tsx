@@ -14,9 +14,11 @@ import {
 } from './icons';
 import { DbiLogo } from './DbiLogo';
 
+type NavTab = 'dashboard' | 'cameras' | 'live' | 'reports' | 'settings';
+
 interface NavbarProps {
-  currentTab: 'dashboard' | 'cameras' | 'reports' | 'settings';
-  setCurrentTab: (tab: 'dashboard' | 'cameras' | 'reports' | 'settings') => void;
+  currentTab: NavTab;
+  setCurrentTab: (tab: NavTab) => void;
   onOpenNewShopModal: () => void;
 }
 
@@ -137,6 +139,19 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab, onOpe
 
               <button
                 type="button"
+                onClick={() => setCurrentTab('live')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap ${
+                  currentTab === 'live'
+                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/25'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                <ActivityIcon size={15} />
+                <span>Live View</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setCurrentTab('reports')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap ${
                   currentTab === 'reports'
@@ -235,6 +250,16 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab, onOpe
             </button>
             <button
               type="button"
+              onClick={() => setCurrentTab('live')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap ${
+                currentTab === 'live' ? 'bg-blue-600 text-white shadow-xs' : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <ActivityIcon size={14} />
+              Live View
+            </button>
+            <button
+              type="button"
               onClick={() => setCurrentTab('reports')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap ${
                 currentTab === 'reports' ? 'bg-blue-600 text-white shadow-xs' : 'text-gray-600 hover:bg-gray-100'
@@ -278,6 +303,16 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab, onOpe
         >
           <CctvCameraIcon size={18} />
           <span>Cameras</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setCurrentTab('live')}
+          className={`flex-1 py-1 rounded-xl text-[10px] font-extrabold flex flex-col items-center gap-0.5 transition ${
+            currentTab === 'live' ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <ActivityIcon size={18} />
+          <span>Live</span>
         </button>
         <button
           type="button"

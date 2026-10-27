@@ -33,3 +33,11 @@ export function generateConnectorToken(): string {
 export function hashConnectorToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
+
+/** A paired connector counts as online only if it heartbeat within the stale window — never fake "online". */
+export const CONNECTOR_STALE_MS = 2 * 60 * 1000;
+
+export function isConnectorOnline(connector: { status: string; lastHeartbeatAt?: Date | string | null }): boolean {
+  if (connector.status !== 'PAIRED' || !connector.lastHeartbeatAt) return false;
+  return Date.now() - new Date(connector.lastHeartbeatAt).getTime() <= CONNECTOR_STALE_MS;
+}

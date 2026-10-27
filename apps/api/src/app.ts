@@ -22,6 +22,11 @@ app.use(cors({
   credentials: true,
 }));
 
+// A DISCOVER channel-scan result can carry up to 32 base64 JPEG thumbnails - well past
+// the default ~100kb body limit. Must be registered before the general json() below,
+// since the first body parser to run consumes the request stream.
+app.use('/internal/v1/connectors/jobs/:jobId/result', express.json({ limit: '4mb' }));
+
 // Parse JSON request bodies
 app.use(express.json());
 
