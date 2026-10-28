@@ -11,7 +11,8 @@
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "test": "npm --workspace=@dbi/api run test"
+    "test": "npm --workspace=@dbi/api run test",
+    "test:unit": "npm --workspace=@dbi/api run test:unit && npm --workspace=@dbi/connector run test"
   },
   "devDependencies": {
     "turbo": "^2.0.0",

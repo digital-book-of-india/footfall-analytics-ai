@@ -6,7 +6,7 @@ import { CameraModel, ICameraDocument } from '../models/Camera.js';
 import { CountingLineModel } from '../models/CountingLine.js';
 import { ShopModel } from '../models/Shop.js';
 import { sendSuccess, sendError } from '../utils/response.js';
-import { resolveDecryptedStreamUrl } from '../utils/cameraStream.js';
+import { tryResolveDecryptedStreamUrl } from '../utils/cameraStream.js';
 import { floorToLocalHourUtc } from '../utils/timezone.js';
 import {
   IngestFootfallEventRequest,
@@ -236,7 +236,11 @@ internalRouter.get('/cameras/:cameraId/stream-config', async (req: Request, res:
       return;
     }
 
-    const streamUrl = resolveDecryptedStreamUrl(camera);
+    const streamUrl = tryResolveDecryptedStreamUrl(camera);
+    if (streamUrl === null) {
+      sendError(res, 422, 'CAMERA_SECRET_UNREADABLE', 'Stored camera URL cannot be decrypted (encryption key changed?). Re-enter the camera URL in the owner panel.');
+      return;
+    }
 
     const countingLine = await CountingLineModel.findOne({ cameraId: camera._id });
 

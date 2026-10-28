@@ -8,6 +8,8 @@ import { sendSuccess, sendError } from '../utils/response.js';
 import { requireAuth, requireShopAccess, AuthenticatedRequest } from '../middleware/auth.js';
 import { encryptCredential, sanitizeStreamUrl } from '../utils/crypto.js';
 import { resolveDecryptedStreamUrl } from '../utils/cameraStream.js';
+import { buildRtspUrl } from '../utils/rtsp.js';
+import { effectiveCameraStatus } from '../utils/cameraStatus.js';
 import { probeStreamReachability } from '../utils/streamProbe.js';
 import { isConnectorOnline } from '../services/connectorManager.js';
 import { enqueueJob, waitForJob, peekJob, isJobDone } from '../services/connectorJobs.js';
@@ -28,11 +30,22 @@ export const cameraRouter = Router({ mergeParams: true });
  */
 cameraRouter.post('/shops/:shopId/cameras', requireAuth, requireShopAccess, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name, connectionType, streamUrl, rtspUrl, username, password, connectorId } = req.body as any;
-    const finalStreamUrl = streamUrl || rtspUrl;
+    const { name, connectionType, streamUrl, rtspUrl, username, password, connectorId, host, port, path } = req.body as any;
+    let finalStreamUrl = streamUrl || rtspUrl;
+
+    // Structured form (host/port/user/password/path): build the URL server-side so special
+    // characters in the password are encoded. Empty path -> generic default (/stream1).
+    if (!finalStreamUrl && host) {
+      try {
+        finalStreamUrl = buildRtspUrl({ host, port, username, password, path });
+      } catch (e: any) {
+        sendError(res, 400, 'BAD_REQUEST', e.message);
+        return;
+      }
+    }
 
     if (!name || !finalStreamUrl) {
-      sendError(res, 400, 'BAD_REQUEST', 'Camera name and streamUrl or rtspUrl are required');
+      sendError(res, 400, 'BAD_REQUEST', 'Camera name and streamUrl, rtspUrl or host are required');
       return;
     }
 
@@ -198,9 +211,24 @@ cameraRouter.patch(['/shops/:shopId/cameras/:cameraId', '/cameras/:cameraId'], r
     if (!context) return;
     const { camera } = context;
 
-    const { name, connectionType, streamUrl, rtspUrl, connectorId } = req.body;
+    const { name, connectionType, streamUrl, rtspUrl, connectorId, username, password } = req.body;
 
     if (name) camera.name = name.trim();
+    if (username || password) {
+      // Changed credentials: store them separately and drop any user:pass embedded in the
+      // stored URL (resolveDecryptedStreamUrl only merges credentials into a URL without any).
+      camera.encryptedCredentials = encryptCredential(JSON.stringify({ username, password }));
+      camera.hasCredentials = true;
+      if (!streamUrl && !rtspUrl) {
+        try {
+          const bare = sanitizeStreamUrl(resolveDecryptedStreamUrl(camera));
+          camera.encryptedStreamUrl = encryptCredential(bare);
+          camera.sanitizedStreamUrl = bare;
+        } catch {
+          // stored URL can't be decrypted (e.g. key changed) - owner must re-enter the URL too
+        }
+      }
+    }
     if (connectionType) camera.connectionType = connectionType;
     if (connectorId !== undefined) {
       if (connectorId) {
@@ -338,22 +366,20 @@ cameraRouter.get('/cameras/:cameraId/health', requireAuth, async (req: Authentic
     if (!context) return;
     const { camera } = context;
 
-    // Evaluate stale heartbeat: If last heartbeat > 90 seconds ago, mark OFFLINE
-    const timeoutMs = 90 * 1000;
-    const now = Date.now();
-    const lastHb = camera.lastHeartbeatAt ? new Date(camera.lastHeartbeatAt).getTime() : 0;
-
-    if (camera.status === 'ONLINE' && (!camera.lastHeartbeatAt || now - lastHb > timeoutMs)) {
-      camera.status = 'OFFLINE';
-      camera.safeErrorCode = 'HEARTBEAT_TIMEOUT';
+    // Stale heartbeat => OFFLINE (shared rule, see utils/cameraStatus.ts). Persist it so
+    // other readers of the stored status agree with what the owner sees.
+    const effective = effectiveCameraStatus(camera);
+    if (effective.status !== camera.status) {
+      camera.status = effective.status as typeof camera.status;
+      camera.safeErrorCode = effective.safeErrorCode;
       await camera.save();
     }
 
     sendSuccess(res, {
       cameraId: camera._id.toString(),
-      status: camera.status,
+      status: effective.status,
       lastHeartbeatAt: camera.lastHeartbeatAt ? camera.lastHeartbeatAt.toISOString() : undefined,
-      safeErrorCode: camera.safeErrorCode,
+      safeErrorCode: effective.safeErrorCode,
     });
   } catch (err: any) {
     sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to inspect camera health');
@@ -400,6 +426,11 @@ cameraRouter.get('/cameras/:cameraId/channels/scan/:jobId', requireAuth, async (
     const { camera } = context;
 
     const job = peekJob(req.params.jobId);
+    // A scan result (thumbnails of someone's cameras) is only readable via the camera it was started for.
+    if (job && job.cameraId !== camera._id.toString()) {
+      sendError(res, 404, 'NOT_FOUND', 'Scan job not found');
+      return;
+    }
     if (!isJobDone(job)) {
       sendSuccess(res, { status: 'PENDING' });
       return;

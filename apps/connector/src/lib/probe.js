@@ -6,26 +6,10 @@ const { app } = require("electron");
 const log = require("electron-log");
 const rtsp = require("./rtsp");
 const api = require("./api");
+const { createScanner } = require("./scan");
 const { JOB_POLL_INTERVAL_MS } = require("./config");
 
-const MAX_CHANNELS = 32;
-const SCAN_CONCURRENCY = 2;
-const THUMB_CONCURRENCY = 2;
-const DETECT_CHANNELS = [1, 2, 3, 4];
 const THUMB_TIMEOUT_MS = 15000;
-
-const PATH_SCHEMES = {
-  hikvision: {
-    mainPath: (n) => `/Streaming/Channels/${n}01`,
-    subPath: (n) => `/Streaming/Channels/${n}02`,
-    matches: (path) => /^\/Streaming\/Channels\/\d+/i.test(path),
-  },
-  dahua: {
-    mainPath: (n) => `/cam/realmonitor?channel=${n}&subtype=0`,
-    subPath: (n) => `/cam/realmonitor?channel=${n}&subtype=1`,
-    matches: (path) => /^\/cam\/realmonitor/i.test(path),
-  },
-};
 
 function tcpProbe(streamUrl, timeout = 4000) {
   return new Promise((resolve) => {
@@ -53,31 +37,6 @@ function tcpProbe(streamUrl, timeout = 4000) {
       done({ reachable: false, errorCode: code });
     });
   });
-}
-
-function fmt(res) {
-  if (res.status === null) return `null(${res.error}${res.raw ? `: ${res.raw}` : ""})`;
-  return String(res.status);
-}
-
-async function describeWithRetry(streamUrl) {
-  let res = await rtsp.describe(streamUrl);
-  if (res.status === null) {
-    await new Promise((r) => setTimeout(r, 800));
-    res = await rtsp.describe(streamUrl);
-  }
-  return res;
-}
-
-async function probeCamera(streamUrl) {
-  const tcp = await tcpProbe(streamUrl);
-  if (!tcp.reachable) return tcp;
-
-  const res = await describeWithRetry(streamUrl);
-  if (res.status === null) return { reachable: false, errorCode: "NO_RTSP_RESPONSE" };
-  if (res.status === 401 || res.status === 403) return { reachable: false, errorCode: "AUTH_FAILED" };
-  if (res.status === 404) return { reachable: false, errorCode: "STREAM_PATH_NOT_FOUND" };
-  return { reachable: true };
 }
 
 function runtimePythonPaths() {
@@ -145,129 +104,12 @@ function grabThumbnail(streamUrl) {
   });
 }
 
-async function mapWithConcurrency(items, limit, worker) {
-  const results = new Array(items.length);
-  let index = 0;
-  async function run() {
-    while (index < items.length) {
-      const i = index;
-      index += 1;
-      results[i] = await worker(items[i], i);
-    }
-  }
-  const runners = Array.from({ length: Math.min(limit, items.length) }, run);
-  await Promise.all(runners);
-  return results;
-}
-
-function buildUrl(streamUrl, newPath) {
-  const u = new URL(streamUrl);
-  // rebuild preserving scheme/credentials/host, replacing only pathname+search
-  const idx = newPath.indexOf("?");
-  u.pathname = idx >= 0 ? newPath.slice(0, idx) : newPath;
-  u.search = idx >= 0 ? newPath.slice(idx) : "";
-  return u.toString();
-}
-
-async function detectScheme(streamUrl, debugParts) {
-  const base = new URL(streamUrl);
-  for (const [schemeName, scheme] of Object.entries(PATH_SCHEMES)) {
-    for (const n of DETECT_CHANNELS) {
-      const candidateUrl = buildUrl(streamUrl, scheme.mainPath(n));
-      const res = await describeWithRetry(candidateUrl);
-      debugParts.push(fmt(res));
-      if (res.status === 401 || res.status === 403) {
-        return { error: "AUTH_FAILED" };
-      }
-      if (res.status === 200 && res.hasVideo) {
-        return { schemeName, scheme };
-      }
-    }
-  }
-  return null;
-}
-
-async function discoverChannels(streamUrl) {
-  const debugParts = [];
-
-  const tcp = await tcpProbe(streamUrl);
-  if (!tcp.reachable) {
-    return { channels: [], error: tcp.errorCode, debug: debugParts.join(", ") };
-  }
-
-  const ownRes = await describeWithRetry(streamUrl);
-  debugParts.push(fmt(ownRes));
-  if (ownRes.status === 401 || ownRes.status === 403) {
-    return { channels: [], error: "AUTH_FAILED", debug: debugParts.join(", ") };
-  }
-
-  let path;
-  try {
-    path = rtsp.parseUrl(streamUrl).path;
-  } catch {
-    path = "";
-  }
-
-  let matchedScheme = null;
-  for (const scheme of Object.values(PATH_SCHEMES)) {
-    if (scheme.matches(path)) {
-      matchedScheme = scheme;
-      break;
-    }
-  }
-
-  if (!matchedScheme) {
-    const detected = await detectScheme(streamUrl, debugParts);
-    if (detected && detected.error) {
-      return { channels: [], error: detected.error, debug: debugParts.join(", ") };
-    }
-    matchedScheme = detected ? detected.scheme : null;
-  }
-
-  if (!matchedScheme) {
-    if (ownRes.status === 200 && ownRes.hasVideo) {
-      const thumbnail = await grabThumbnail(streamUrl);
-      return {
-        channels: [{ channel: 1, label: "This camera", path, thumbnail }],
-        debug: debugParts.join(", "),
-      };
-    }
-    return { channels: [], error: "NO_CHANNELS_FOUND", debug: debugParts.join(", ") };
-  }
-
-  const channelNumbers = Array.from({ length: MAX_CHANNELS }, (_, i) => i + 1);
-  const scanResults = await mapWithConcurrency(channelNumbers, SCAN_CONCURRENCY, async (n) => {
-    const candidateUrl = buildUrl(streamUrl, matchedScheme.mainPath(n));
-    const res = await describeWithRetry(candidateUrl);
-    debugParts.push(fmt(res));
-    if (res.status === 200 && res.hasVideo) {
-      return { channel: n, mainPath: matchedScheme.mainPath(n) };
-    }
-    return null;
-  });
-
-  const found = scanResults.filter(Boolean);
-  if (!found.length) {
-    return { channels: [], error: "NO_CHANNELS_FOUND", debug: debugParts.join(", ") };
-  }
-
-  const withSub = await mapWithConcurrency(found, SCAN_CONCURRENCY, async (ch) => {
-    const subPath = matchedScheme.subPath(ch.channel);
-    const subUrl = buildUrl(streamUrl, subPath);
-    const subRes = await describeWithRetry(subUrl);
-    debugParts.push(fmt(subRes));
-    const useSub = subRes.status === 200 && subRes.hasVideo;
-    return { channel: ch.channel, path: useSub ? subPath : ch.mainPath };
-  });
-
-  const withThumbs = await mapWithConcurrency(withSub, THUMB_CONCURRENCY, async (ch) => {
-    const fullUrl = buildUrl(streamUrl, ch.path);
-    const thumbnail = await grabThumbnail(fullUrl);
-    return { channel: ch.channel, path: ch.path, label: `Channel ${ch.channel}`, thumbnail };
-  });
-
-  return { channels: withThumbs, debug: debugParts.join(", ") };
-}
+const { probeCamera, discoverChannels } = createScanner({
+  tcpProbe,
+  describe: (url) => rtsp.describe(url),
+  grabThumbnail,
+  parsePath: (url) => rtsp.parseUrl(url).path,
+});
 
 class JobRunner extends EventEmitter {
   constructor() {

@@ -31,4 +31,4 @@ if ($LASTEXITCODE -ne 0) { throw "upload of latest.yml failed" }
 
 Write-Host "Released v$version"
 Write-Host "Download: $BackendUrl/downloads/connector/DBI-Footfall-Connector-Setup.exe"
-Write-Host "Commit the version bump:  git add package.json package-lock.json; git commit -m 'chore(connector): v$version'; git push"
+Write-Host "Commit the version bump:  git add package.json; git commit -m 'chore(connector): v$version'; git push"

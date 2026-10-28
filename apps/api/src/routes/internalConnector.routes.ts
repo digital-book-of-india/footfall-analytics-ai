@@ -5,7 +5,7 @@ import { CameraModel } from '../models/Camera.js';
 import { CountingLineModel } from '../models/CountingLine.js';
 import { connectorAuth, ConnectorAuthedRequest } from '../middleware/connectorAuth.js';
 import { generateConnectorToken, hashConnectorToken } from '../services/connectorManager.js';
-import { resolveDecryptedStreamUrl } from '../utils/cameraStream.js';
+import { tryResolveDecryptedStreamUrl } from '../utils/cameraStream.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { createRateLimiter } from '../middleware/rateLimiter.js';
 import { takePendingJobs, completeJob } from '../services/connectorJobs.js';
@@ -86,13 +86,19 @@ connectorDeviceRouter.get('/cameras', async (req: ConnectorAuthedRequest, res: R
   try {
     const cameras = await CameraModel.find({ connectorId: req.connector!.id });
 
-    const items: ConnectorCameraListItem[] = cameras.map((cam) => ({
-      cameraId: cam._id.toString(),
-      shopId: cam.shopId.toString(),
-      name: cam.name,
-      connectionType: cam.connectionType,
-      streamUrl: resolveDecryptedStreamUrl(cam),
-    }));
+    // A camera whose URL can't be decrypted is skipped (not a 500 for the whole list).
+    const items: ConnectorCameraListItem[] = [];
+    for (const cam of cameras) {
+      const streamUrl = tryResolveDecryptedStreamUrl(cam);
+      if (streamUrl === null) continue;
+      items.push({
+        cameraId: cam._id.toString(),
+        shopId: cam.shopId.toString(),
+        name: cam.name,
+        connectionType: cam.connectionType,
+        streamUrl,
+      });
+    }
 
     sendSuccess(res, { items });
   } catch (err: any) {
@@ -138,15 +144,17 @@ connectorDeviceRouter.post('/jobs/:jobId/result', async (req: ConnectorAuthedReq
 connectorDeviceRouter.get('/ai/cameras', async (req: ConnectorAuthedRequest, res: Response) => {
   try {
     const cameras = await CameraModel.find({ connectorId: req.connector!.id });
-    const items = await Promise.all(
+    const resolved = await Promise.all(
       cameras.map(async (cam) => {
+        const streamUrl = tryResolveDecryptedStreamUrl(cam);
+        if (streamUrl === null) return null; // undecryptable: skip just this camera
         const line = await CountingLineModel.findOne({ cameraId: cam._id });
         return {
           id: cam._id.toString(),
           shopId: cam.shopId.toString(),
           name: cam.name,
           connectionType: cam.connectionType,
-          streamUrl: resolveDecryptedStreamUrl(cam),
+          streamUrl,
           countingLine: line
             ? {
                 coordinates: line.coordinates,
@@ -158,6 +166,7 @@ connectorDeviceRouter.get('/ai/cameras', async (req: ConnectorAuthedRequest, res
         };
       })
     );
+    const items = resolved.filter((item): item is NonNullable<typeof item> => item !== null);
     // ai-worker's client.py (both standalone and connector mode) reads this as
     // data.cameras, each with a shopId - required so connector-mode footfall events
     // can be attributed to the right shop.

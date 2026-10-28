@@ -1,5 +1,6 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { Camera, CameraStatus, ConnectionType } from '@dbi/shared-types';
+import { effectiveCameraStatus } from '../utils/cameraStatus.js';
 
 export interface ICameraDocument extends Document {
   shopId: Types.ObjectId;
@@ -48,17 +49,19 @@ const CameraSchema = new Schema<ICameraDocument>(
  * Serializes camera safely without ever exposing encrypted or raw credentials
  */
 CameraSchema.methods.toResponseObject = function (): Camera {
+  // Never report a stale "Online": a camera whose worker/connector went quiet is OFFLINE.
+  const effective = effectiveCameraStatus(this as unknown as ICameraDocument);
   return {
     id: this._id.toString(),
     shopId: this.shopId.toString(),
     connectorId: this.connectorId ? this.connectorId.toString() : null,
     name: this.name,
     connectionType: this.connectionType,
-    status: this.status,
+    status: effective.status as CameraStatus,
     hasCredentials: this.hasCredentials,
     rtspUrlMasked: this.sanitizedStreamUrl || undefined,
     lastHeartbeatAt: this.lastHeartbeatAt ? this.lastHeartbeatAt.toISOString() : undefined,
-    safeErrorCode: this.safeErrorCode,
+    safeErrorCode: effective.safeErrorCode,
     createdAt: this.createdAt.toISOString(),
     updatedAt: this.updatedAt.toISOString(),
   };

@@ -12,7 +12,8 @@
     "test": "tsx src/test-e2e.ts",
     "test:e2e": "tsx src/test-e2e.ts",
     "pretypecheck": "npm run build -w @dbi/shared-types",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "tsx --test src/unit/camera-connectivity.test.ts"
   },
   "dependencies": {
     "@dbi/shared-types": "*",

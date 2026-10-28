@@ -9,6 +9,7 @@
     "prestart": "node scripts/write-runtime-config.js",
     "start": "electron .",
     "predist": "node scripts/write-runtime-config.js && node scripts/prepare-python.js",
+    "test": "node --test test/scan.test.js",
     "dist": "electron-builder --win --publish never",
     "prepublish": "node scripts/write-runtime-config.js"
   },
@@ -59,6 +60,7 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
+      "include": "installer/firewall.nsh",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }

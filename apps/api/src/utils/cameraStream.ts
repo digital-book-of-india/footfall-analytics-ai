@@ -27,3 +27,18 @@ export function resolveDecryptedStreamUrl(camera: ICameraDocument): string {
 
   return streamUrl;
 }
+
+/**
+ * Like resolveDecryptedStreamUrl, but returns null instead of throwing when this one
+ * camera's stored URL cannot be decrypted (e.g. it was saved under a different
+ * CAMERA_SECRET_ENCRYPTION_KEY). Lists that serve many cameras at once use this so a single
+ * bad camera is skipped and flagged rather than turning the whole response into a 500.
+ */
+export function tryResolveDecryptedStreamUrl(camera: ICameraDocument): string | null {
+  try {
+    return resolveDecryptedStreamUrl(camera);
+  } catch {
+    console.warn(`[cameras] stream URL for camera ${camera._id} could not be decrypted - skipping it`);
+    return null;
+  }
+}
