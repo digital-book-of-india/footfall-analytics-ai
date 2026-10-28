@@ -8,6 +8,10 @@ interface CountingLineCanvasProps {
   initialOutDirection?: Direction;
   initialEnabled?: boolean;
   cameraName: string;
+  /** Latest camera frame (JPEG); resolves null when none has arrived yet. */
+  fetchFrame?: () => Promise<{ blob: Blob } | null>;
+  /** Asks the worker to push frames at the fast rate while the editor is open. */
+  requestLive?: () => Promise<unknown>;
   onSave: (data: {
     coordinates: NormalizedCoordinates;
     inDirection: Direction;
@@ -23,6 +27,8 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
   initialOutDirection = 'OUT',
   initialEnabled = true,
   cameraName,
+  fetchFrame,
+  requestLive,
   onSave,
   onCancel
 }) => {
@@ -42,6 +48,52 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
       isMountedRef.current = false;
     };
   }, []);
+
+  // Real camera frame as the editor background; the dummy grid stays as fallback.
+  const [frameUrl, setFrameUrl] = useState<string | null>(null);
+  const [frameAspect, setFrameAspect] = useState<number | null>(null);
+  const [frameLoading, setFrameLoading] = useState<boolean>(!!fetchFrame);
+  const [frameTick, setFrameTick] = useState<number>(0);
+
+  useEffect(() => {
+    if (!fetchFrame) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    setFrameLoading(true);
+
+    const poll = async () => {
+      attempts += 1;
+      const frame = await fetchFrame().catch(() => null);
+      if (stopped) return;
+      if (frame) {
+        const url = URL.createObjectURL(frame.blob);
+        setFrameUrl(prev => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+        setFrameLoading(false);
+      } else if (attempts < 15) {
+        timer = setTimeout(poll, 1500);
+      } else {
+        setFrameLoading(false);
+      }
+    };
+
+    requestLive?.().catch(() => undefined);
+    poll();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frameTick]);
+
+  useEffect(() => {
+    return () => {
+      if (frameUrl) URL.revokeObjectURL(frameUrl);
+    };
+  }, [frameUrl]);
 
   const handlePointerDown = (handle: 'p1' | 'p2', e: React.PointerEvent) => {
     e.preventDefault();
@@ -145,10 +197,24 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
           ref={containerRef}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          style={frameAspect ? { aspectRatio: String(frameAspect) } : undefined}
           className="relative w-full aspect-video rounded-xl overflow-hidden border-2 border-gray-800 bg-gray-950 select-none shadow-inner cursor-crosshair group touch-none"
         >
-          {/* Simulated Entrance Camera Feed Background */}
-          <div className="absolute inset-0 bg-gradient-to-b from-slate-900 via-slate-800 to-zinc-900 opacity-90">
+          {frameUrl && (
+            <img
+              src={frameUrl}
+              alt={`${cameraName} frame`}
+              draggable={false}
+              onLoad={e => {
+                const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
+                if (w && h) setFrameAspect(w / h);
+              }}
+              className="absolute inset-0 w-full h-full object-fill pointer-events-none"
+            />
+          )}
+
+          {/* Simulated Entrance Camera Feed Background (shown until a real frame arrives) */}
+          <div className={`absolute inset-0 bg-gradient-to-b from-slate-900 via-slate-800 to-zinc-900 opacity-90 ${frameUrl ? 'hidden' : ''}`}>
             {/* Perspective shop entrance grid lines */}
             <svg className="w-full h-full opacity-25" xmlns="http://www.w3.org/2000/svg">
               <defs>
@@ -167,8 +233,19 @@ export const CountingLineCanvas: React.FC<CountingLineCanvasProps> = ({
           {/* OSD (On Screen Display) Overlay */}
           <div className="absolute top-2 sm:top-3 left-2 sm:left-3 bg-black/70 backdrop-blur px-2 sm:px-2.5 py-0.5 sm:py-1 rounded text-[10px] sm:text-[11px] font-mono text-emerald-400 flex items-center gap-1.5 sm:gap-2 border border-emerald-500/30">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            REC • RTSP STREAM • 1080p
+            {frameUrl ? 'LIVE FRAME' : frameLoading ? 'LOADING FRAME…' : 'NO FRAME YET'}
           </div>
+
+          {fetchFrame && (
+            <button
+              type="button"
+              onPointerDown={e => e.stopPropagation()}
+              onClick={() => setFrameTick(t => t + 1)}
+              className="absolute bottom-2 sm:bottom-3 right-2 sm:right-3 z-30 bg-black/70 hover:bg-black/90 px-2.5 py-1 rounded text-[11px] font-medium text-white border border-white/30"
+            >
+              Refresh frame
+            </button>
+          )}
 
           <div className="absolute top-2 sm:top-3 right-2 sm:right-3 bg-black/70 backdrop-blur px-2 sm:px-2.5 py-0.5 sm:py-1 rounded text-[10px] sm:text-[11px] font-mono text-amber-300 border border-amber-500/30">
             STATUS: {enabled ? 'ACTIVE' : 'PAUSED'}

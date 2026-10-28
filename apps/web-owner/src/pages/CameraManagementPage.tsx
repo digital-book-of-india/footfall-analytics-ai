@@ -786,6 +786,8 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
           ) : (
             <CountingLineCanvas
               cameraName={activeLineCamera.name}
+              fetchFrame={() => api.fetchLiveFrame(activeLineCamera.id)}
+              requestLive={() => api.requestLive(activeLineCamera.id)}
               initialCoordinates={activeLine?.coordinates}
               initialInDirection={activeLine?.inDirection}
               initialOutDirection={activeLine?.outDirection}
