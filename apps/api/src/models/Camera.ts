@@ -14,6 +14,7 @@ export interface ICameraDocument extends Document {
   status: CameraStatus;
   lastHeartbeatAt?: Date;
   safeErrorCode?: string;
+  ignoreRegions: Array<{ eventId: string; x: number; y: number; w: number; h: number }>;
   createdAt: Date;
   updatedAt: Date;
   toResponseObject(): Camera;
@@ -41,6 +42,22 @@ const CameraSchema = new Schema<ICameraDocument>(
     },
     lastHeartbeatAt: { type: Date },
     safeErrorCode: { type: String },
+    // Boxes the owner marked "false alarm" on a zone-watch alert (see owner/events review route):
+    // the AI worker skips a new detection that overlaps one of these closely. Capped to the most
+    // recent 20 via $slice on push, so this never grows unbounded.
+    ignoreRegions: {
+      type: [
+        {
+          eventId: { type: String, required: true },
+          x: { type: Number, required: true },
+          y: { type: Number, required: true },
+          w: { type: Number, required: true },
+          h: { type: Number, required: true },
+          _id: false,
+        },
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );

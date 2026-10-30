@@ -1,8 +1,10 @@
 import express, { Router, Request, Response } from 'express';
+import multer from 'multer';
 import { ConnectorModel } from '../models/Connector.js';
 import { ShopModel } from '../models/Shop.js';
 import { CameraModel } from '../models/Camera.js';
 import { CountingLineModel } from '../models/CountingLine.js';
+import { ZoneModel } from '../models/Zone.js';
 import { connectorAuth, ConnectorAuthedRequest } from '../middleware/connectorAuth.js';
 import { generateConnectorToken, hashConnectorToken } from '../services/connectorManager.js';
 import { tryResolveDecryptedStreamUrl } from '../utils/cameraStream.js';
@@ -10,8 +12,25 @@ import { sendSuccess, sendError } from '../utils/response.js';
 import { createRateLimiter } from '../middleware/rateLimiter.js';
 import { takePendingJobs, completeJob } from '../services/connectorJobs.js';
 import { wantedLive, storeFrame } from '../services/connectorLive.js';
-import { ingestFootfallEvents, parseIngestEventsBody, recordCameraHealth } from './internal.routes.js';
-import { PairConnectorRequest, PairConnectorResponseData, ConnectorHeartbeatRequest, ConnectorCameraListItem, AIHeartbeatRequest, IngestEventResponseData } from '@dbi/shared-types';
+import { writeEvidenceFile, safeResolve } from '../services/evidence/storage.js';
+import {
+  ingestFootfallEvents,
+  ingestSecurityEvents,
+  parseIngestEventsBody,
+  recordCameraHealth,
+} from './internal.routes.js';
+import {
+  PairConnectorRequest,
+  PairConnectorResponseData,
+  ConnectorHeartbeatRequest,
+  ConnectorCameraListItem,
+  AIHeartbeatRequest,
+  IngestEventResponseData,
+  IngestSecurityEventRequest,
+  IngestSecurityEventResponseData,
+} from '@dbi/shared-types';
+
+const evidenceUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 
 /** 20 attempts/min per IP — pairing codes are unauthenticated and guessable in bulk otherwise. */
 const pairingRateLimiter = createRateLimiter({
@@ -148,7 +167,10 @@ connectorDeviceRouter.get('/ai/cameras', async (req: ConnectorAuthedRequest, res
       cameras.map(async (cam) => {
         const streamUrl = tryResolveDecryptedStreamUrl(cam);
         if (streamUrl === null) return null; // undecryptable: skip just this camera
-        const line = await CountingLineModel.findOne({ cameraId: cam._id });
+        const [line, zone] = await Promise.all([
+          CountingLineModel.findOne({ cameraId: cam._id }),
+          ZoneModel.findOne({ cameraId: cam._id }),
+        ]);
         return {
           id: cam._id.toString(),
           shopId: cam.shopId.toString(),
@@ -163,6 +185,15 @@ connectorDeviceRouter.get('/ai/cameras', async (req: ConnectorAuthedRequest, res
                 enabled: line.enabled,
               }
             : null,
+          zone: zone
+            ? {
+                zoneType: zone.zoneType,
+                polygon: zone.polygon,
+                sensitivity: zone.sensitivity,
+                enabled: zone.enabled,
+              }
+            : null,
+          ignoreRegions: cam.ignoreRegions || [],
         };
       })
     );
@@ -254,6 +285,59 @@ connectorDeviceRouter.post('/ai/events', async (req: ConnectorAuthedRequest, res
     sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to ingest footfall events');
   }
 });
+
+// POST /internal/v1/connectors/ai/security-events
+// Zone-watch alerts from a connector-hosted worker, scoped to this connector's own cameras.
+connectorDeviceRouter.post('/ai/security-events', async (req: ConnectorAuthedRequest, res: Response) => {
+  try {
+    const eventsToProcess = parseIngestEventsBody(req.body) as unknown as IngestSecurityEventRequest[] | null;
+    if (!eventsToProcess) {
+      sendError(res, 400, 'BAD_REQUEST', 'Request body must contain eventId or events array');
+      return;
+    }
+
+    const owned = await CameraModel.find({ connectorId: req.connector!.id }).select('_id');
+    const ownedIds = new Set(owned.map((c) => c._id.toString()));
+    const scoped = eventsToProcess.filter((evt) => ownedIds.has(evt.cameraId));
+
+    const result = await ingestSecurityEvents(scoped);
+    sendSuccess<IngestSecurityEventResponseData>(res, result);
+  } catch (err: any) {
+    sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to ingest security events');
+  }
+});
+
+// POST /internal/v1/connectors/ai/evidence/upload
+// A connector may only write objectKeys under its own shop's evidence prefix.
+connectorDeviceRouter.post(
+  '/ai/evidence/upload',
+  evidenceUpload.single('file'),
+  async (req: ConnectorAuthedRequest, res: Response) => {
+    try {
+      const objectKey = (req.body as any)?.objectKey;
+      const connector = await ConnectorModel.findById(req.connector!.id).select('shopId');
+      const allowedPrefix = connector ? `private/${connector.shopId.toString()}/` : null;
+      if (
+        !objectKey ||
+        typeof objectKey !== 'string' ||
+        !safeResolve(objectKey) ||
+        !allowedPrefix ||
+        !objectKey.startsWith(allowedPrefix)
+      ) {
+        sendError(res, 400, 'BAD_REQUEST', 'A valid objectKey scoped to this connector is required');
+        return;
+      }
+      if (!req.file) {
+        sendError(res, 400, 'BAD_REQUEST', 'A file is required');
+        return;
+      }
+      await writeEvidenceFile(objectKey, req.file.buffer);
+      sendSuccess(res, { objectKey });
+    } catch (err: any) {
+      sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to store evidence file');
+    }
+  }
+);
 
 // POST /internal/v1/connectors/ai/health
 connectorDeviceRouter.post('/ai/health', async (req: ConnectorAuthedRequest, res: Response) => {

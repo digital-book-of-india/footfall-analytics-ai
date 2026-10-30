@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useShop } from '../context/ShopContext';
-import { Camera, CameraTestResult, CountingLine, ConnectionType, Connector } from '../types';
+import { Camera, CameraTestResult, CountingLine, Zone, ConnectionType, Connector } from '../types';
 import { api } from '../services/apiClient';
 import { CameraStatusBadge } from '../components/StatusBadges';
 import { CountingLineCanvas } from '../components/CountingLineCanvas';
+import { ZoneEditorModal } from '../components/ZoneEditorModal';
 import { ConnectorsPanel } from '../components/ConnectorsPanel';
 import { ChannelsDialog } from '../components/ChannelsDialog';
 import { maskRtspUrl, cameraErrorMessage } from '../utils/security';
@@ -57,6 +58,11 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
   const [activeLineCamera, setActiveLineCamera] = useState<Camera | null>(null);
   const [activeLine, setActiveLine] = useState<CountingLine | null>(null);
   const [loadingLine, setLoadingLine] = useState<boolean>(false);
+
+  // Security Zone Modal State
+  const [activeZoneCamera, setActiveZoneCamera] = useState<Camera | null>(null);
+  const [activeZone, setActiveZone] = useState<Zone | null>(null);
+  const [loadingZone, setLoadingZone] = useState<boolean>(false);
 
   // Find Channels Dialog State
   const [channelsCamera, setChannelsCamera] = useState<Camera | null>(null);
@@ -237,6 +243,27 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
     } catch (err: any) {
       setError(err.message || 'Failed to save virtual line coordinates');
     }
+  };
+
+  const handleOpenZone = async (camera: Camera) => {
+    setActiveZoneCamera(camera);
+    setLoadingZone(true);
+    try {
+      const zone = await api.getZone(camera.id);
+      setActiveZone(zone);
+    } catch {
+      setActiveZone(null);
+    } finally {
+      setLoadingZone(false);
+    }
+  };
+
+  const handleSaveZone = async (zoneData: any) => {
+    if (!activeZoneCamera) return;
+    await api.saveZone(activeZoneCamera.id, zoneData);
+    setActiveZoneCamera(null);
+    setActiveZone(null);
+    fetchCameras();
   };
 
   if (shopLoading && !selectedShop) {
@@ -534,6 +561,15 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
                     <SlidersIcon size={14} />
                     Configure Counting Line
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenZone(camera)}
+                    className="w-full sm:w-auto justify-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                  >
+                    <ShieldIcon size={14} />
+                    Configure Security Zone
+                  </button>
                 </div>
               </div>
             );
@@ -796,6 +832,33 @@ export const CameraManagementPage: React.FC<CameraManagementPageProps> = ({ onOp
               onCancel={() => {
                 setActiveLineCamera(null);
                 setActiveLine(null);
+              }}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Security Zone Modal */}
+      {activeZoneCamera && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 animate-fadeIn overflow-y-auto">
+          {loadingZone ? (
+            <div className="bg-white p-8 rounded-2xl flex items-center gap-3">
+              <RefreshCwIcon size={20} className="animate-spin text-blue-600" />
+              <span className="text-sm font-medium text-gray-700">Loading zone configuration...</span>
+            </div>
+          ) : (
+            <ZoneEditorModal
+              cameraName={activeZoneCamera.name}
+              fetchFrame={() => api.fetchLiveFrame(activeZoneCamera.id)}
+              requestLive={() => api.requestLive(activeZoneCamera.id)}
+              initialPolygon={activeZone?.polygon}
+              initialZoneType={activeZone?.zoneType}
+              initialSensitivity={activeZone?.sensitivity}
+              initialEnabled={activeZone?.enabled}
+              onSave={handleSaveZone}
+              onCancel={() => {
+                setActiveZoneCamera(null);
+                setActiveZone(null);
               }}
             />
           )}

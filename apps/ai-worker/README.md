@@ -1,23 +1,27 @@
 # @dbi/ai-worker (Python)
 
-Real video-processing worker for footfall counting. Opens each camera's actual
-video source, detects people, tracks them across frames, and counts a crossing
-whenever a tracked person's trajectory crosses the shop's configured virtual
-counting line — then submits the `IN`/`OUT` event to the Core API.
+Real video-processing worker that does two independent things per camera, both off
+the same detector:
 
-Previously this package was a TypeScript stub that only emitted synthetic
-simulated events on a timer; it never touched a real frame. This rewrite
-(Python + OpenCV) is based on the working stream-reading and person-detection
-pipeline from the sibling `theaft-ai` project, with the theft/zone-specific
-parts (shutter-interaction classifier, zone intrusion) replaced by this
-project's own line-crossing counting logic. See `src/tracking/centroid_tracker.py`
-for the one piece that had to be written fresh — theft detection only needed
-per-frame zone presence, footfall counting needs an actual cross-frame
-trajectory to know direction.
+1. **Footfall counting** — tracks people across frames (`tracking/centroid_tracker.py`)
+   and counts a crossing whenever a tracked person's trajectory crosses the shop's
+   configured virtual counting line, submitting `IN`/`OUT` events.
+2. **Zone watching** — checks each detection against the shop's configured security
+   zone polygon (e.g. a shutter or gate) and raises `PERSON_IN_ZONE` /
+   `POSSIBLE_SHUTTER_INTERACTION` alerts, with a red-boxed evidence snapshot, once
+   someone has stood there long enough (`heuristics/classifier.py`). Ported from the
+   sibling `theaft-ai` project's zone/evidence pipeline (`zones/`, `heuristics/`,
+   `reporting/`, `detection/background.py`, `detection/face_check.py`).
 
-**Scope lock:** entries/exits only. No theft/security classification, no
-identity tracking beyond the single-session centroid needed to compute
-direction, no zone intrusion logic.
+A camera can have a counting line, a zone, both, or neither — `main.py`'s
+`_watch_camera()` runs whichever is enabled; `_watch_zone()` holds the zone path.
+
+Originally this package was a TypeScript stub that only emitted synthetic simulated
+events on a timer; it never touched a real frame. The Python + OpenCV rewrite started
+from the sibling `theaft-ai` project's working stream-reading and person-detection
+pipeline. `src/tracking/centroid_tracker.py` is the one piece theaft-ai never needed —
+zone watching only needs per-frame "is a person in this polygon", footfall counting
+needs an actual cross-frame trajectory to know direction.
 
 ## Layout
 
@@ -27,9 +31,18 @@ src/
   client.py                    HTTP client for /internal/v1/footfall/* (x-ai-secret auth)
   config.py                    env-driven config
   stream/reader.py             opens RTSP/file/webcam source, reconnects on drop, loops local clips
-  detection/person_detector.py OpenCV HOG+SVM person detector (no model download needed)
+  detection/person_detector.py YOLOX-tiny (ONNX, via cv2.dnn) person detector, HOG+SVM fallback
+  detection/background.py      empty-scene model — tells an arriving person from a poster/mannequin
+  detection/face_check.py      YuNet face check — alerts only for a person facing away from camera
+  detection/models/            yolox_tiny.onnx + face_detection_yunet_2023mar.onnx (gitignored; see
+                                scripts/prepare_models.py)
   tracking/centroid_tracker.py greedy nearest-centroid multi-object tracker (new, not in theaft-ai)
   geometry/line_crossing.py    virtual-line crossing + IN/OUT direction (ported from the old TS worker)
+  zones/zone_loader.py         point-in-polygon zone membership + false-alarm ignore-region check
+  heuristics/classifier.py     dwell-time + cooldown state machine -> PERSON_IN_ZONE / SHUTTER_INTERACTION
+  reporting/snapshot.py        annotated (red box + blue zone outline) evidence JPEG encoding
+scripts/
+  prepare_models.py            downloads the two ONNX models above (sha256-pinned)
 tests/
   test_line_crossing.py        unit tests for the crossing geometry
   test_tracker.py              unit tests for the centroid tracker
@@ -78,12 +91,13 @@ a live camera, run it manually: `python tests/smoke_single_camera.py <cameraId>`
 
 ## Known limitations
 
-- The HOG+SVM detector is OpenCV's built-in person detector — noticeably less
-  accurate than a modern model (YOLOv8n etc.). It will miss partial/side-on
-  bodies and can false-positive on bins or mannequins. Swap in a heavier model
-  by keeping `PersonDetector.detect(frame) -> list[Detection]`'s shape.
-- The centroid tracker is intentionally simple (nearest-centroid greedy
-  matching, no Kalman filter / re-ID) — adequate for a handful of people in
-  frame at low sampling rates, not a crowd-scale tracker.
+- Without the YOLOX model downloaded (`scripts/prepare_models.py`), detection
+  falls back to OpenCV's built-in HOG+SVM detector — noticeably less accurate,
+  will miss partial/side-on bodies and can false-positive on bins or mannequins.
+- The centroid tracker (counting line only) is intentionally simple
+  (nearest-centroid greedy matching, no Kalman filter / re-ID) — adequate for
+  a handful of people in frame at low sampling rates, not a crowd-scale tracker.
 - `DETECTION_INTERVAL_SEC` trades CPU for responsiveness; too large a value
   can let a fast-moving person cross the line between samples and go uncounted.
+- Zone `sensitivity` (LOW/MEDIUM/HIGH) is stored and shown in the owner app but
+  not yet read by the detection pipeline — see `zones/zone_loader.py`.

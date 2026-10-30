@@ -7,7 +7,11 @@ import {
   UserStatus,
   ConnectionType,
   BucketType,
-  ConnectorStatus
+  ConnectorStatus,
+  ZoneType,
+  ZoneSensitivity,
+  SecurityEventType,
+  ReviewStatus
 } from './enums.js';
 
 /**
@@ -135,7 +139,62 @@ export interface FootfallAggregate {
 }
 
 /**
- * 7. Audit Log Model
+ * A single normalized (0..1) point on a camera frame
+ */
+export interface Point {
+  x: number;
+  y: number;
+}
+
+/**
+ * 7. Security Zone Model
+ * An owner-drawn polygon (e.g. around a shutter/gate) that the AI worker watches
+ * independently of the entry/exit counting line. One zone per camera (upsert on save).
+ */
+export interface Zone {
+  id?: string;
+  shopId: string;
+  cameraId: string;
+  zoneType: ZoneType;
+  polygon: Point[];
+  sensitivity: ZoneSensitivity;
+  enabled: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * Evidence attached to a Security Event — object keys only; access is via short-lived signed URLs.
+ */
+export interface SecurityEventEvidence {
+  snapshotObjectKey?: string;
+  clipObjectKey?: string;
+  snapshotUrl?: string;
+  clipUrl?: string;
+  expiresAt?: string;
+}
+
+/**
+ * 8. Security Event Model (zone-watch alert, distinct from FootfallEvent)
+ */
+export interface SecurityEvent {
+  id?: string;
+  eventId: string;
+  seq?: number;
+  shopId: string;
+  cameraId: string;
+  eventType: SecurityEventType;
+  confidence: number;
+  startedAt: string;
+  endedAt?: string;
+  evidence: SecurityEventEvidence;
+  reviewStatus: ReviewStatus;
+  modelVersion?: string;
+  createdAt?: string;
+}
+
+/**
+ * 9. Audit Log Model
  */
 export interface AuditLog {
   id: string;
@@ -146,7 +205,7 @@ export interface AuditLog {
   };
   action: string;
   target: {
-    type: 'SHOP' | 'CAMERA' | 'USER' | 'COUNTING_LINE' | 'CONNECTOR' | 'SYSTEM';
+    type: 'SHOP' | 'CAMERA' | 'USER' | 'COUNTING_LINE' | 'CONNECTOR' | 'ZONE' | 'SECURITY_EVENT' | 'SYSTEM';
     id: string;
   };
   reason?: string;

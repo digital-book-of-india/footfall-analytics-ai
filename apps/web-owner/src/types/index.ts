@@ -18,7 +18,17 @@ import type {
   CountingLine,
   CameraTestResult,
   FootfallSummary,
-  FootfallTimeseriesPoint
+  FootfallTimeseriesPoint,
+  Point,
+  Zone,
+  ZoneType,
+  ZoneSensitivity,
+  SecurityEvent,
+  SecurityEventType,
+  SecurityEventEvidence,
+  ReviewStatus,
+  SaveZoneRequest,
+  PaginatedEventsResponseData
 } from '@dbi/shared-types';
 
 export type {
@@ -41,7 +51,17 @@ export type {
   CountingLine,
   CameraTestResult,
   FootfallSummary,
-  FootfallTimeseriesPoint
+  FootfallTimeseriesPoint,
+  Point,
+  Zone,
+  ZoneType,
+  ZoneSensitivity,
+  SecurityEvent,
+  SecurityEventType,
+  SecurityEventEvidence,
+  ReviewStatus,
+  SaveZoneRequest,
+  PaginatedEventsResponseData
 };
 
 export interface CreateShopInput {

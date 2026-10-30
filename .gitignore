@@ -14,3 +14,8 @@ test-clips/*.mp4
 
 # generated at build time by apps/connector/scripts/write-runtime-config.js
 apps/connector/src/lib/runtime-config.json
+
+# zone-watch evidence snapshots (apps/api/src/services/evidence/storage.ts) and downloaded
+# AI worker detection models (apps/ai-worker/src/detection/models/)
+apps/api/storage/
+apps/ai-worker/src/detection/models/

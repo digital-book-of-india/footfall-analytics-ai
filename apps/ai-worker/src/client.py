@@ -24,6 +24,10 @@ else:
     _HEADERS = {"Content-Type": "application/json", "x-ai-secret": AI_SERVICE_SHARED_SECRET}
     _PREFIX = "/internal/v1/footfall"
 
+# Auth header only, no Content-Type — a multipart (files=...) request needs `requests` to set
+# its own Content-Type with the multipart boundary, which it won't do if one is already set.
+_AUTH_HEADERS = {k: v for k, v in _HEADERS.items() if k.lower() != "content-type"}
+
 
 def _get(path: str) -> Optional[Dict[str, Any]]:
     try:
@@ -54,8 +58,8 @@ def list_cameras() -> List[Dict[str, Any]]:
     if not body:
         return []
     if CONNECTOR_MODE:
-        # { data: { cameras: [{ id, shopId, name, streamUrl, countingLine }] } } — streamUrl
-        # and countingLine are inline already, no separate stream-config call needed.
+        # { data: { cameras: [{ id, shopId, name, streamUrl, countingLine, zone, ignoreRegions }] } }
+        # — streamUrl/countingLine/zone are inline already, no separate stream-config call needed.
         cameras = ((body.get("data") or {}).get("cameras")) or []
         normalized = []
         for cam in cameras:
@@ -69,6 +73,8 @@ def list_cameras() -> List[Dict[str, Any]]:
                     "name": cam.get("name"),
                     "streamUrl": cam.get("streamUrl"),
                     "countingLine": cam.get("countingLine"),
+                    "zone": cam.get("zone"),
+                    "ignoreRegions": cam.get("ignoreRegions") or [],
                 }
             )
         return normalized
@@ -78,7 +84,7 @@ def list_cameras() -> List[Dict[str, Any]]:
 
 
 def get_stream_config(camera_id: str) -> Optional[Dict[str, Any]]:
-    # Standalone mode only — connector mode gets streamUrl/countingLine inline from list_cameras().
+    # Standalone mode only — connector mode gets streamUrl/countingLine/zone inline from list_cameras().
     body = _get(f"/internal/v1/footfall/cameras/{camera_id}/stream-config")
     if not body or not body.get("success"):
         return None
@@ -88,6 +94,31 @@ def get_stream_config(camera_id: str) -> Optional[Dict[str, Any]]:
 def send_footfall_event(event: Dict[str, Any]) -> bool:
     body = _post(f"{_PREFIX}/events", event)
     return bool(body and body.get("success"))
+
+
+def send_security_event(event: Dict[str, Any]) -> bool:
+    """Zone-watch alert (PERSON_IN_ZONE / POSSIBLE_SHUTTER_INTERACTION / ...)."""
+    path = f"{_PREFIX}/security-events" if CONNECTOR_MODE else "/internal/v1/footfall/security-events"
+    body = _post(path, event)
+    return bool(body and body.get("success"))
+
+
+def upload_evidence(object_key: str, jpeg_bytes: bytes) -> bool:
+    """Uploads an annotated evidence JPEG for a security event. Short timeout like
+    upload_live_frame — a slow network must not hold up reading the camera's video."""
+    path = f"{_PREFIX}/evidence/upload" if CONNECTOR_MODE else "/internal/v1/footfall/evidence/upload"
+    try:
+        resp = requests.post(
+            f"{CORE_API_URL}{path}",
+            headers=_AUTH_HEADERS,
+            data={"objectKey": object_key},
+            files={"file": ("snapshot.jpg", jpeg_bytes, "image/jpeg")},
+            timeout=8,
+        )
+        return resp.status_code in (200, 201)
+    except requests.RequestException as e:
+        print(f"[client] evidence upload failed: {e}")
+        return False
 
 
 def send_heartbeat(camera_id: str, status: str = "ONLINE", safe_error_code: Optional[str] = None) -> bool:

@@ -1,16 +1,22 @@
 import { Router, Request, Response } from 'express';
+import multer from 'multer';
 import { requireAiServiceSecret } from '../middleware/aiAuth.js';
 import { FootfallEventModel } from '../models/FootfallEvent.js';
 import { FootfallAggregateModel } from '../models/FootfallAggregate.js';
 import { CameraModel, ICameraDocument } from '../models/Camera.js';
 import { CountingLineModel } from '../models/CountingLine.js';
+import { ZoneModel } from '../models/Zone.js';
+import { SecurityEventModel } from '../models/SecurityEvent.js';
 import { ShopModel } from '../models/Shop.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { tryResolveDecryptedStreamUrl } from '../utils/cameraStream.js';
 import { floorToLocalHourUtc } from '../utils/timezone.js';
+import { writeEvidenceFile, safeResolve } from '../services/evidence/storage.js';
 import {
   IngestFootfallEventRequest,
   IngestEventResponseData,
+  IngestSecurityEventRequest,
+  IngestSecurityEventResponseData,
   AIHeartbeatRequest
 } from '@dbi/shared-types';
 
@@ -18,6 +24,8 @@ export const internalRouter = Router();
 
 // Apply AI service secret auth to all internal routes
 internalRouter.use(requireAiServiceSecret);
+
+const evidenceUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 
 /** Connection types the AI worker can open a real video source for (never MOCK_STREAM, which is pure demo). */
 const REAL_VIDEO_CONNECTION_TYPES = new Set(['RTSP', 'TEST_CLIP', 'HTTP_STREAM', 'WEBCAM']);
@@ -142,6 +150,47 @@ export async function recordCameraHealth(
 }
 
 /**
+ * Shared security-event (zone-watch alert) ingestion core — mirrors ingestFootfallEvents's
+ * dedup/idempotency shape, but for PERSON_IN_ZONE / POSSIBLE_SHUTTER_INTERACTION / etc. events.
+ * Used by both the standalone path below and the connector-scoped
+ * /internal/v1/connectors/ai/security-events route.
+ */
+export async function ingestSecurityEvents(
+  eventsToProcess: IngestSecurityEventRequest[]
+): Promise<IngestSecurityEventResponseData> {
+  let processed = 0;
+  let ignoredDuplicates = 0;
+
+  for (const evt of eventsToProcess) {
+    const { eventId, shopId, cameraId, eventType, confidence, startedAt, evidence, region, modelVersion } = evt;
+    if (!eventId || !shopId || !cameraId || !eventType) continue;
+
+    try {
+      await SecurityEventModel.create({
+        eventId,
+        shopId,
+        cameraId,
+        eventType,
+        confidence: typeof confidence === 'number' ? confidence : 0.7,
+        startedAt: startedAt ? new Date(startedAt) : new Date(),
+        evidence: evidence || {},
+        region,
+        modelVersion,
+      });
+      processed++;
+    } catch (insertErr: any) {
+      if (insertErr.code === 11000) {
+        ignoredDuplicates++;
+      } else {
+        console.error(`[Security Event Ingestion] Unexpected error for eventId ${eventId}:`, insertErr);
+      }
+    }
+  }
+
+  return { processed, ignoredDuplicates };
+}
+
+/**
  * POST /internal/v1/footfall/events
  * Ingest high-frequency crossing events with strict deduplication / idempotency
  */
@@ -157,6 +206,53 @@ internalRouter.post('/events', async (req: Request, res: Response) => {
     sendSuccess<IngestEventResponseData>(res, result);
   } catch (err: any) {
     sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to ingest footfall events');
+  }
+});
+
+/**
+ * POST /internal/v1/footfall/security-events
+ * Ingest zone-watch alerts (PERSON_IN_ZONE / POSSIBLE_SHUTTER_INTERACTION / ...), separate from
+ * the entry/exit crossing events above since they carry evidence and a review workflow.
+ */
+internalRouter.post('/security-events', async (req: Request, res: Response) => {
+  try {
+    const eventsToProcess = parseIngestEventsBody(req.body) as unknown as IngestSecurityEventRequest[] | null;
+    if (!eventsToProcess) {
+      sendError(res, 400, 'BAD_REQUEST', 'Request body must contain eventId or events array');
+      return;
+    }
+
+    const result = await ingestSecurityEvents(eventsToProcess);
+    sendSuccess<IngestSecurityEventResponseData>(res, result);
+  } catch (err: any) {
+    sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to ingest security events');
+  }
+});
+
+/**
+ * POST /internal/v1/footfall/evidence/upload
+ * Stores a zone-watch alert's annotated JPEG snapshot (red box on the detected person, see
+ * ai-worker's reporting/snapshot.py). multipart/form-data: field `objectKey` + field `file`.
+ */
+internalRouter.post('/evidence/upload', evidenceUpload.single('file'), async (req: Request, res: Response) => {
+  try {
+    const objectKey = (req.body as any)?.objectKey;
+    if (!objectKey || typeof objectKey !== 'string' || !safeResolve(objectKey)) {
+      sendError(res, 400, 'BAD_REQUEST', 'A valid objectKey is required');
+      return;
+    }
+    if (!req.file) {
+      sendError(res, 400, 'BAD_REQUEST', 'A file is required');
+      return;
+    }
+    const ok = await writeEvidenceFile(objectKey, req.file.buffer);
+    if (!ok) {
+      sendError(res, 400, 'BAD_REQUEST', 'Invalid objectKey');
+      return;
+    }
+    sendSuccess(res, { objectKey });
+  } catch (err: any) {
+    sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to store evidence file');
   }
 });
 
@@ -242,7 +338,10 @@ internalRouter.get('/cameras/:cameraId/stream-config', async (req: Request, res:
       return;
     }
 
-    const countingLine = await CountingLineModel.findOne({ cameraId: camera._id });
+    const [countingLine, zone] = await Promise.all([
+      CountingLineModel.findOne({ cameraId: camera._id }),
+      ZoneModel.findOne({ cameraId: camera._id }),
+    ]);
 
     sendSuccess(res, {
       cameraId: camera._id.toString(),
@@ -257,6 +356,15 @@ internalRouter.get('/cameras/:cameraId/stream-config', async (req: Request, res:
             enabled: countingLine.enabled,
           }
         : null,
+      zone: zone
+        ? {
+            zoneType: zone.zoneType,
+            polygon: zone.polygon,
+            sensitivity: zone.sensitivity,
+            enabled: zone.enabled,
+          }
+        : null,
+      ignoreRegions: camera.ignoreRegions || [],
     });
   } catch (err: any) {
     sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to resolve stream config');

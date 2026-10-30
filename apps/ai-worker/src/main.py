@@ -1,16 +1,15 @@
-"""DBI Intelligence — Footfall AI Worker.
+"""DBI Intelligence — Footfall & Zone-Watch AI Worker.
 
 Discovers registered cameras from the backend, opens each camera's real video
 source (RTSP / TEST_CLIP / HTTP_STREAM / WEBCAM — never MOCK_STREAM, which has
-no real footage), runs a person detector + centroid tracker against the
-owner-configured virtual counting line, and submits IN/OUT footfall events.
+no real footage), and runs a person detector against whichever of the two the
+owner has configured per camera:
+  - a virtual counting line (centroid-tracked across frames) -> IN/OUT footfall events.
+  - a security zone polygon (e.g. around a shutter/gate) -> PERSON_IN_ZONE /
+    POSSIBLE_SHUTTER_INTERACTION alerts with an annotated evidence snapshot (_watch_zone()).
+Both can run on the same camera at once, off the same per-frame detections.
 Sends a heartbeat per camera on its own interval so the dashboard's camera
 health reflects real worker status.
-
-Scope lock: this worker counts entries/exits only. It does not classify
-behaviour, track individuals across zones for security purposes, or produce
-anything resembling a theft/security event — see docs/README for the
-project's explicit "no theft detection" boundary.
 """
 
 import os
@@ -40,18 +39,26 @@ from config import (
     LIVE_IDLE_INTERVAL_SEC,
     LIVE_MAX_WIDTH,
     LIVE_POLL_INTERVAL_SEC,
+    MIN_ZONE_PERSON_CONFIDENCE,
     MODEL_VERSION,
     STATUS_FRESH_SECONDS,
     STATUS_GRACE_SECONDS,
     STATUS_REPORT_INTERVAL_SEC,
 )
 from detection.person_detector import PersonDetector
+from detection.background import BackgroundModel
+from detection.face_check import FaceChecker
 from geometry.line_crossing import NormalizedLine, Point2D, detect_line_crossing
+from heuristics.classifier import EventClassifier
+from reporting.snapshot import annotate_evidence, encode_jpeg
 from stream.reader import StreamReader
 from tracking.centroid_tracker import CentroidTracker
+from zones.zone_loader import feet_position, is_in_zone, matches_ignored
 
 _stop = threading.Event()
 _watched_cameras: set = set()
+_face_checker: "FaceChecker" = None  # type: ignore[assignment] # loaded once in discover_and_watch
+_detector_name = MODEL_VERSION  # overwritten with the real detector name once it loads
 
 # Connector mode only (CONNECTOR_MODE) — see client.py.
 _camera_cfg: dict = {}  # cameraId -> latest camera record from the connector (streamUrl/countingLine)
@@ -63,6 +70,84 @@ _camera_status: dict = {}  # cameraId -> {last_frame_at, started_at, last_report
 
 def _new_event_id() -> str:
     return f"evt_{int(time.time())}_{uuid.uuid4().hex[:10]}"
+
+
+def _watch_zone(
+    camera_id: str,
+    shop_id: str,
+    frame,
+    w: int,
+    h: int,
+    detections,
+    zone: dict,
+    ignore_regions: list,
+    zone_classifier: EventClassifier,
+    zone_background: BackgroundModel,
+) -> None:
+    """One detection cycle of zone-watch alerting for a single camera — person-in-zone /
+    shutter-interaction, with an annotated evidence snapshot. Runs off the same `detections` the
+    counting-line logic above already computed; does its own cross-frame "is this the same visit"
+    bookkeeping via `zone_classifier` (no shared tracker needed, unlike line-crossing)."""
+    candidates = [
+        det for det in detections
+        if det.confidence >= MIN_ZONE_PERSON_CONFIDENCE and is_in_zone(det.bbox, w, h, zone)
+    ]
+    # Keeps the picture of the empty scene up to date (and still while someone stands in the zone).
+    zone_background.update(frame, [d.bbox for d in detections], bool(candidates))
+
+    in_zone_detection = None
+    for det in candidates:
+        if matches_ignored(det.bbox, w, h, ignore_regions):
+            continue  # where the owner already called an earlier alert a false alarm
+        if not zone_background.is_new_object(frame, det.bbox):
+            continue  # something that was always there (poster, board, mannequin)
+        if _face_checker is not None and _face_checker.face_visible(frame, det.bbox) is True:
+            continue  # looking at the camera — a customer/passer-by, not the alert this zone is for
+        in_zone_detection = det
+        break
+
+    decision = zone_classifier.update(
+        camera_id,
+        in_zone_detection is not None,
+        in_zone_detection.confidence if in_zone_detection else 0.0,
+        feet_position(in_zone_detection.bbox, w, h) if in_zone_detection else None,
+    )
+    if decision is None:
+        return
+
+    print(f"[camera {camera_id}] zone alert: {decision['eventType']} (dwell={decision['dwellSeconds']}s)")
+
+    event_id = _new_event_id()
+    object_key = f"private/{shop_id}/events/{event_id}.jpg"
+    uploaded = False
+    try:
+        jpeg_bytes = encode_jpeg(annotate_evidence(frame, in_zone_detection.bbox if in_zone_detection else None, zone))
+        uploaded = client.upload_evidence(object_key, jpeg_bytes)
+    except Exception as e:  # noqa: BLE001 - a snapshot failure must not drop the alert itself
+        print(f"[camera {camera_id}] evidence snapshot failed: {e}")
+
+    client.send_security_event(
+        {
+            "eventId": event_id,
+            "shopId": shop_id,
+            "cameraId": camera_id,
+            "eventType": decision["eventType"],
+            "confidence": decision["confidence"],
+            "startedAt": _iso_now(),
+            "evidence": {"snapshotObjectKey": object_key} if uploaded else {},
+            "region": (
+                {
+                    "x": in_zone_detection.bbox[0] / w,
+                    "y": in_zone_detection.bbox[1] / h,
+                    "w": in_zone_detection.bbox[2] / w,
+                    "h": in_zone_detection.bbox[3] / h,
+                }
+                if in_zone_detection
+                else None
+            ),
+            "modelVersion": _detector_name,
+        }
+    )
 
 
 def watch_camera(camera: dict, detector: PersonDetector) -> None:
@@ -106,6 +191,18 @@ def _watch_camera(camera: dict, detector: PersonDetector) -> None:
                 line.get("outDirection", "OUT"),
             )
 
+        def current_zone():
+            cfg = _camera_cfg.get(camera_id)
+            if not cfg:
+                return None
+            zone = cfg.get("zone")
+            if not zone or not zone.get("enabled"):
+                return None
+            return zone
+
+        def current_ignore_regions():
+            return (_camera_cfg.get(camera_id) or {}).get("ignoreRegions") or []
+
         def should_restart() -> bool:
             # Camera removed from this connector, or its stream URL changed: stop so
             # discover_and_watch spins up a fresh thread with the latest config.
@@ -121,28 +218,42 @@ def _watch_camera(camera: dict, detector: PersonDetector) -> None:
             return
 
         counting_line = config.get("countingLine")
-        if not counting_line or not counting_line.get("enabled"):
-            print(f"[camera {camera_id}] ({name}) no enabled counting line configured — skipping detection")
+        zone_cfg = config.get("zone")
+        fixed_line = None
+        if counting_line and counting_line.get("enabled"):
+            coords = counting_line["coordinates"]
+            fixed_line = (
+                NormalizedLine(coords["x1"], coords["y1"], coords["x2"], coords["y2"]),
+                counting_line.get("inDirection", "IN"),
+                counting_line.get("outDirection", "OUT"),
+            )
+        fixed_zone = zone_cfg if (zone_cfg and zone_cfg.get("enabled")) else None
+        fixed_ignore_regions = config.get("ignoreRegions") or []
+
+        if fixed_line is None and fixed_zone is None:
+            print(f"[camera {camera_id}] ({name}) no enabled counting line or zone configured — skipping detection")
             client.send_heartbeat(camera_id, status="OFFLINE", safe_error_code="NO_COUNTING_LINE")
             return
 
-        coords = counting_line["coordinates"]
-        fixed_line = (
-            NormalizedLine(coords["x1"], coords["y1"], coords["x2"], coords["y2"]),
-            counting_line.get("inDirection", "IN"),
-            counting_line.get("outDirection", "OUT"),
-        )
         stream_url = config["streamUrl"]
         connection_type = config["connectionType"]
 
         def current_counting_line():
             return fixed_line
 
+        def current_zone():
+            return fixed_zone
+
+        def current_ignore_regions():
+            return fixed_ignore_regions
+
         def should_restart() -> bool:
             return False
 
     reader = StreamReader(stream_url)
     detector_tracker = CentroidTracker()
+    zone_classifier = EventClassifier()
+    zone_background = BackgroundModel()
     last_detect_at = 0.0
     last_heartbeat_at = 0.0
 
@@ -180,46 +291,55 @@ def _watch_camera(camera: dict, detector: PersonDetector) -> None:
             last_detect_at = now
 
             line = current_counting_line()
-            if line is None:
-                continue  # no enabled counting line yet — still watching, just not counting
-            virtual_line, in_direction, out_direction = line
+            zone = current_zone()
+            if line is None and zone is None:
+                continue  # neither an enabled counting line nor zone yet — still watching, not counting
 
             h, w = frame.shape[:2]
             detections = detector.detect(frame)
-            centroids = [d.centroid for d in detections]
-            confidence_by_centroid = {d.centroid: d.confidence for d in detections}
 
-            tracks = detector_tracker.update(centroids, frame_width=w)
+            if line is not None:
+                virtual_line, in_direction, out_direction = line
+                centroids = [d.centroid for d in detections]
+                confidence_by_centroid = {d.centroid: d.confidence for d in detections}
 
-            for track in tracks.values():
-                if track.prev_centroid is None:
-                    continue  # brand-new or just-recovered track: no trajectory yet
+                tracks = detector_tracker.update(centroids, frame_width=w)
 
-                prev_norm = Point2D(track.prev_centroid[0] / w, track.prev_centroid[1] / h)
-                curr_norm = Point2D(track.centroid[0] / w, track.centroid[1] / h)
+                for track in tracks.values():
+                    if track.prev_centroid is None:
+                        continue  # brand-new or just-recovered track: no trajectory yet
 
-                direction = detect_line_crossing(virtual_line, prev_norm, curr_norm, in_direction, out_direction)
-                if direction is None:
-                    continue
+                    prev_norm = Point2D(track.prev_centroid[0] / w, track.prev_centroid[1] / h)
+                    curr_norm = Point2D(track.centroid[0] / w, track.centroid[1] / h)
 
-                confidence = confidence_by_centroid.get(track.centroid, 0.7)
-                event_id = _new_event_id()
-                print(f"[camera {camera_id}] crossing detected: {direction} (track={track.track_id}, conf={confidence:.2f})")
+                    direction = detect_line_crossing(virtual_line, prev_norm, curr_norm, in_direction, out_direction)
+                    if direction is None:
+                        continue
 
-                if not shop_id:
-                    print(f"[camera {camera_id}] no shopId available — dropping event {event_id}")
-                    continue
+                    confidence = confidence_by_centroid.get(track.centroid, 0.7)
+                    event_id = _new_event_id()
+                    print(f"[camera {camera_id}] crossing detected: {direction} (track={track.track_id}, conf={confidence:.2f})")
 
-                client.send_footfall_event(
-                    {
-                        "eventId": event_id,
-                        "shopId": shop_id,
-                        "cameraId": camera_id,
-                        "direction": direction,
-                        "occurredAt": _iso_now(),
-                        "confidence": confidence,
-                        "modelVersion": MODEL_VERSION,
-                    }
+                    if not shop_id:
+                        print(f"[camera {camera_id}] no shopId available — dropping event {event_id}")
+                        continue
+
+                    client.send_footfall_event(
+                        {
+                            "eventId": event_id,
+                            "shopId": shop_id,
+                            "cameraId": camera_id,
+                            "direction": direction,
+                            "occurredAt": _iso_now(),
+                            "confidence": confidence,
+                            "modelVersion": MODEL_VERSION,
+                        }
+                    )
+
+            if zone is not None and shop_id:
+                _watch_zone(
+                    camera_id, shop_id, frame, w, h, detections, zone, current_ignore_regions(),
+                    zone_classifier, zone_background,
                 )
     finally:
         reader.close()
@@ -295,7 +415,12 @@ def _iso_now() -> str:
 
 def discover_and_watch() -> None:
     """Starts one watcher thread per camera, re-scanning periodically for newly added cameras."""
+    global _face_checker, _detector_name
     detector = PersonDetector()
+    _detector_name = detector.name
+    _face_checker = FaceChecker()
+    if _face_checker.available:
+        _detector_name += "+face"
 
     if CONNECTOR_MODE:
         threading.Thread(target=live_wanted_poller, daemon=True).start()

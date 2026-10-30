@@ -1,11 +1,15 @@
-import { 
-  Role, 
-  CameraStatus, 
-  Direction, 
-  DataSource, 
-  Quality, 
-  ShopStatus, 
-  ConnectionType 
+import {
+  Role,
+  CameraStatus,
+  Direction,
+  DataSource,
+  Quality,
+  ShopStatus,
+  ConnectionType,
+  ZoneType,
+  ZoneSensitivity,
+  SecurityEventType,
+  ReviewStatus
 } from './enums.js';
 import {
   User,
@@ -13,7 +17,9 @@ import {
   Camera,
   CountingLine,
   NormalizedCoordinates,
-  AuditLog
+  AuditLog,
+  Point,
+  SecurityEventEvidence
 } from './models.js';
 
 // ==========================================
@@ -131,6 +137,59 @@ export interface SetCountingLineRequest {
   inDirection: Direction | string;
   outDirection: Direction | string;
   enabled?: boolean;
+}
+
+// ==========================================
+// 4b. Security Zone DTOs
+// ==========================================
+export interface SaveZoneRequest {
+  zoneType: ZoneType;
+  polygon: Point[];
+  sensitivity: ZoneSensitivity;
+  enabled: boolean;
+}
+
+// ==========================================
+// 4c. Security Event (zone-watch alert) DTOs
+// ==========================================
+export interface IngestSecurityEventRequest {
+  eventId: string;
+  shopId: string;
+  cameraId: string;
+  eventType: SecurityEventType;
+  confidence: number;
+  startedAt?: string;
+  evidence?: { snapshotObjectKey?: string; clipObjectKey?: string };
+  region?: { x: number; y: number; w: number; h: number };
+  modelVersion?: string;
+}
+
+export interface IngestSecurityEventResponseData {
+  processed: number;
+  ignoredDuplicates: number;
+}
+
+export interface ReviewEventRequest {
+  reviewStatus: Exclude<ReviewStatus, 'NEW'>;
+}
+
+export interface PaginatedEventsResponseData {
+  items: Array<{
+    id: string;
+    eventId: string;
+    shopId: string;
+    cameraId: string;
+    eventType: SecurityEventType;
+    confidence: number;
+    startedAt: string;
+    endedAt?: string;
+    evidence: SecurityEventEvidence;
+    reviewStatus: ReviewStatus;
+    modelVersion?: string;
+    createdAt?: string;
+  }>;
+  nextCursor: string | null;
+  total: number;
 }
 
 // ==========================================

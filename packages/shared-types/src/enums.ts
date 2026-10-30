@@ -56,6 +56,31 @@ export type ConnectorStatus = 'PENDING' | 'PAIRED' | 'REVOKED';
 export type BucketType = 'HOUR' | 'DAY';
 
 /**
+ * Security Zone area type (what the owner-drawn polygon watches)
+ */
+export type ZoneType = 'SHUTTER' | 'GATE' | 'ENTRANCE' | 'CUSTOM';
+
+/**
+ * Security Zone alert sensitivity (surfaced in the UI; not yet read by detection logic)
+ */
+export type ZoneSensitivity = 'LOW' | 'MEDIUM' | 'HIGH';
+
+/**
+ * Security event (zone-watch alert) type
+ */
+export type SecurityEventType =
+  | 'PERSON_IN_ZONE'
+  | 'POSSIBLE_SHUTTER_INTERACTION'
+  | 'POSSIBLE_TAMPERING'
+  | 'CAMERA_OFFLINE'
+  | 'AI_OFFLINE';
+
+/**
+ * Owner's review verdict on a security event
+ */
+export type ReviewStatus = 'NEW' | 'REVIEWED' | 'FALSE_ALARM' | 'CONFIRMED';
+
+/**
  * Standard API Error Codes
  */
 export type ErrorCode = 

@@ -5,6 +5,7 @@ import { Navbar } from './components/Navbar';
 import { DashboardPage } from './pages/DashboardPage';
 import { CameraManagementPage } from './pages/CameraManagementPage';
 import { LiveViewPage } from './pages/LiveViewPage';
+import { AlertsPage } from './pages/AlertsPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { ShopProfilePage } from './pages/ShopProfilePage';
 import { AuthPage } from './pages/AuthPage';
@@ -16,7 +17,7 @@ const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const { isLoading: shopLoading } = useShop();
 
-  const [currentTab, setCurrentTab] = useState<'dashboard' | 'cameras' | 'live' | 'reports' | 'settings'>('dashboard');
+  const [currentTab, setCurrentTab] = useState<'dashboard' | 'cameras' | 'live' | 'alerts' | 'reports' | 'settings'>('dashboard');
   const [showNewShopModal, setShowNewShopModal] = useState<boolean>(false);
 
   if (authLoading) {
@@ -65,6 +66,9 @@ const AppContent: React.FC = () => {
           />
         )}
         {currentTab === 'live' && <LiveViewPage />}
+        {currentTab === 'alerts' && (
+          <AlertsPage onOpenNewShopModal={() => setShowNewShopModal(true)} />
+        )}
         {currentTab === 'reports' && (
           <ReportsPage onOpenNewShopModal={() => setShowNewShopModal(true)} />
         )}
@@ -84,7 +88,8 @@ const AppContent: React.FC = () => {
           <div>
             <span className="font-bold text-gray-700">DBI Intelligence • AI Footfall Analytics MVP</span>
             <p className="text-[11px] text-gray-400 mt-0.5">
-              Normal footfall analytics only. No theft detection, rack tracking, face recognition, or customer identity profiling.
+              Footfall counting, plus optional security zone watching (e.g. a shutter) you can enable per camera.
+              No face recognition or customer identity profiling.
             </p>
           </div>
           <div className="text-right text-[11px] text-gray-400">

@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { promises as fsPromises } from 'fs';
 import { CameraModel } from '../models/Camera.js';
 import { CountingLineModel } from '../models/CountingLine.js';
+import { ZoneModel } from '../models/Zone.js';
 import { ShopModel } from '../models/Shop.js';
 import { ConnectorModel } from '../models/Connector.js';
 import { sendSuccess, sendError } from '../utils/response.js';
@@ -14,12 +15,15 @@ import { probeStreamReachability } from '../utils/streamProbe.js';
 import { isConnectorOnline } from '../services/connectorManager.js';
 import { enqueueJob, waitForJob, peekJob, isJobDone } from '../services/connectorJobs.js';
 import { requestLive, getFrame } from '../services/connectorLive.js';
-import { 
-  CreateCameraRequest, 
-  SetCountingLineRequest, 
-  Camera, 
-  CountingLine, 
-  CameraTestResponseData 
+import {
+  CreateCameraRequest,
+  SetCountingLineRequest,
+  SaveZoneRequest,
+  Camera,
+  CountingLine,
+  Zone,
+  Point,
+  CameraTestResponseData
 } from '@dbi/shared-types';
 
 export const cameraRouter = Router({ mergeParams: true });
@@ -649,8 +653,11 @@ cameraRouter.put('/cameras/:cameraId/counting-line', requireAuth, async (req: Au
         shopId: camera.shopId,
         cameraId: camera._id,
         coordinates: { x1, y1, x2, y2 },
-        inDirection: inDirection || 'TOP_TO_BOTTOM',
-        outDirection: outDirection || 'BOTTOM_TO_TOP',
+        // Must stay "IN"/"OUT" — matches CountingLineCanvas.tsx and line_crossing.py's default
+        // (see the CountingLine model's own comment); an earlier mismatched default here could
+        // save a direction the ai-worker's FootfallEvent ingestion silently drops.
+        inDirection: inDirection || 'IN',
+        outDirection: outDirection || 'OUT',
         enabled: enabled !== undefined ? enabled : true,
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -685,9 +692,75 @@ cameraRouter.get('/cameras/:cameraId/counting-line', requireAuth, async (req: Au
 });
 
 /**
+ * PUT /api/v1/cameras/:cameraId/zones
+ * Configure the owner-drawn security zone (polygon) the AI worker watches independently of the
+ * entry/exit counting line — e.g. a shutter or gate area. One zone per camera (upsert).
+ */
+cameraRouter.put('/cameras/:cameraId/zones', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const context = await checkCameraAccess(req, res);
+    if (!context) return;
+    const { camera } = context;
+
+    const { zoneType, polygon, sensitivity, enabled } = req.body as SaveZoneRequest;
+
+    const isPointValid = (p: any) =>
+      p && typeof p.x === 'number' && typeof p.y === 'number' && !isNaN(p.x) && !isNaN(p.y) &&
+      p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1;
+
+    if (!Array.isArray(polygon) || polygon.length < 3 || polygon.length > 20 || !polygon.every(isPointValid)) {
+      sendError(res, 400, 'INVALID_COORDINATES', 'polygon must be 3-20 normalized points { x, y } between 0.0 and 1.0');
+      return;
+    }
+
+    const allowedTypes = ['SHUTTER', 'GATE', 'ENTRANCE', 'CUSTOM'];
+    const allowedSensitivity = ['LOW', 'MEDIUM', 'HIGH'];
+
+    const zone = await ZoneModel.findOneAndUpdate(
+      { cameraId: camera._id },
+      {
+        shopId: camera.shopId,
+        cameraId: camera._id,
+        zoneType: allowedTypes.includes(zoneType) ? zoneType : 'SHUTTER',
+        polygon: polygon.map((p: Point) => ({ x: p.x, y: p.y })),
+        sensitivity: allowedSensitivity.includes(sensitivity) ? sensitivity : 'MEDIUM',
+        enabled: enabled !== undefined ? enabled : true,
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    sendSuccess<Zone>(res, zone.toResponseObject());
+  } catch (err: any) {
+    sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to update zone');
+  }
+});
+
+/**
+ * GET /api/v1/cameras/:cameraId/zones
+ * Fetch the configured security zone, if any.
+ */
+cameraRouter.get('/cameras/:cameraId/zones', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const context = await checkCameraAccess(req, res);
+    if (!context) return;
+    const { camera } = context;
+
+    const zone = await ZoneModel.findOne({ cameraId: camera._id });
+    if (!zone) {
+      sendError(res, 404, 'NOT_FOUND', 'A zone has not been configured for this camera');
+      return;
+    }
+
+    sendSuccess<Zone>(res, zone.toResponseObject());
+  } catch (err: any) {
+    sendError(res, 500, 'INTERNAL_ERROR', err.message || 'Failed to fetch zone');
+  }
+});
+
+/**
  * DELETE /api/v1/cameras/:cameraId
- * Removes the camera and its counting line. Does not touch footfallEvents/aggregates
- * already recorded — historical analytics stay intact.
+ * Removes the camera, its counting line, and its security zone. Does not touch
+ * footfallEvents/aggregates/security events already recorded — historical data stays intact.
  */
 cameraRouter.delete('/cameras/:cameraId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -696,6 +769,7 @@ cameraRouter.delete('/cameras/:cameraId', requireAuth, async (req: Authenticated
     const { camera } = context;
 
     await CountingLineModel.deleteOne({ cameraId: camera._id });
+    await ZoneModel.deleteOne({ cameraId: camera._id });
     await CameraModel.findByIdAndDelete(camera._id);
 
     sendSuccess(res, { id: camera._id.toString(), message: 'Camera deleted successfully' });

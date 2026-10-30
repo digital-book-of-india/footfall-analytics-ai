@@ -8,10 +8,19 @@
 const fs = require("fs");
 const path = require("path");
 const https = require("https");
+const crypto = require("crypto");
 const { execFileSync } = require("child_process");
 
 const PY_VERSION = "3.12.8";
 const GO2RTC_VERSION = "1.9.9";
+// Person detector (Apache-2.0) used by detection/person_detector.py when present; falls back to
+// OpenCV's built-in HOG+SVM detector otherwise. Same model/pin as the sibling theaft-ai project.
+const YOLOX_URL = "https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_tiny.onnx";
+const YOLOX_SHA256 = "427cc366d34e27ff7a03e2899b5e3671425c262ea2291f88bb942bc1cc70b0f7";
+// Face-facing-camera check (MIT) used by detection/face_check.py to suppress zone-watch alerts
+// for someone looking at the camera; optional, zone watching still works without it.
+const YUNET_URL = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx";
+const YUNET_SHA256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4";
 
 const ROOT = path.join(__dirname, "..");
 const RESOURCES_DIR = path.join(ROOT, "build-resources");
@@ -19,6 +28,7 @@ const PYTHON_DIR = path.join(RESOURCES_DIR, "python");
 const GO2RTC_DIR = path.join(RESOURCES_DIR, "go2rtc");
 const AI_WORKER_DST = path.join(RESOURCES_DIR, "ai-worker", "src");
 const AI_WORKER_SRC = path.join(ROOT, "..", "ai-worker", "src");
+const MODELS_DIR = path.join(AI_WORKER_SRC, "detection", "models");
 const READY_MARKER = path.join(PYTHON_DIR, ".footfall-ready");
 
 function download(url, destFile) {
@@ -144,6 +154,31 @@ async function prepareGo2rtc() {
   }
 }
 
+function sha256(file) {
+  return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+}
+
+async function prepareModel(filename, url, expectedSha256) {
+  const dest = path.join(MODELS_DIR, filename);
+  if (fs.existsSync(dest) && sha256(dest) === expectedSha256) {
+    console.log(`[prepare-python] ${filename} already present, skipping`);
+    return;
+  }
+  fs.mkdirSync(MODELS_DIR, { recursive: true });
+  console.log(`[prepare-python] downloading ${filename}...`);
+  await download(url, dest);
+  const actual = sha256(dest);
+  if (actual !== expectedSha256) {
+    fs.unlinkSync(dest);
+    throw new Error(`[prepare-python] ${filename} checksum mismatch (expected ${expectedSha256}, got ${actual})`);
+  }
+}
+
+async function prepareModels() {
+  await prepareModel("yolox_tiny.onnx", YOLOX_URL, YOLOX_SHA256);
+  await prepareModel("face_detection_yunet_2023mar.onnx", YUNET_URL, YUNET_SHA256);
+}
+
 function prepareAiWorkerSource() {
   console.log("[prepare-python] copying ai-worker source...");
   if (fs.existsSync(AI_WORKER_DST)) {
@@ -156,6 +191,7 @@ async function main() {
   fs.mkdirSync(RESOURCES_DIR, { recursive: true });
   await preparePython();
   await prepareGo2rtc();
+  await prepareModels();
   prepareAiWorkerSource();
   console.log("[prepare-python] done");
 }

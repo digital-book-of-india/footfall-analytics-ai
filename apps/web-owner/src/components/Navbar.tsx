@@ -8,13 +8,14 @@ import {
   CctvCameraIcon,
   ReportChartIcon,
   GearSettingsIcon,
+  ShieldIcon,
   LogOutIcon,
   PlusIcon,
   ChevronDownIcon
 } from './icons';
 import { DbiLogo } from './DbiLogo';
 
-type NavTab = 'dashboard' | 'cameras' | 'live' | 'reports' | 'settings';
+type NavTab = 'dashboard' | 'cameras' | 'live' | 'alerts' | 'reports' | 'settings';
 
 interface NavbarProps {
   currentTab: NavTab;
@@ -152,6 +153,19 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab, onOpe
 
               <button
                 type="button"
+                onClick={() => setCurrentTab('alerts')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap ${
+                  currentTab === 'alerts'
+                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/25'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                <ShieldIcon size={15} />
+                <span>Alerts</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setCurrentTab('reports')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap ${
                   currentTab === 'reports'
@@ -260,6 +274,16 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab, onOpe
             </button>
             <button
               type="button"
+              onClick={() => setCurrentTab('alerts')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap ${
+                currentTab === 'alerts' ? 'bg-blue-600 text-white shadow-xs' : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <ShieldIcon size={14} />
+              Alerts
+            </button>
+            <button
+              type="button"
               onClick={() => setCurrentTab('reports')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap ${
                 currentTab === 'reports' ? 'bg-blue-600 text-white shadow-xs' : 'text-gray-600 hover:bg-gray-100'
@@ -313,6 +337,16 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab, onOpe
         >
           <ActivityIcon size={18} />
           <span>Live</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setCurrentTab('alerts')}
+          className={`flex-1 py-1 rounded-xl text-[10px] font-extrabold flex flex-col items-center gap-0.5 transition ${
+            currentTab === 'alerts' ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <ShieldIcon size={18} />
+          <span>Alerts</span>
         </button>
         <button
           type="button"

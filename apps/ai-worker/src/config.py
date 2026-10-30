@@ -29,3 +29,10 @@ LIVE_MAX_WIDTH = int(os.getenv("LIVE_MAX_WIDTH", "960"))
 STATUS_REPORT_INTERVAL_SEC = float(os.getenv("STATUS_REPORT_INTERVAL_SEC", "30"))
 STATUS_FRESH_SECONDS = float(os.getenv("STATUS_FRESH_SECONDS", "75"))
 STATUS_GRACE_SECONDS = float(os.getenv("STATUS_GRACE_SECONDS", "20"))
+
+# Security Zone watching (owner-drawn polygon, e.g. a shutter/gate — separate from the counting
+# line above). Detections below MIN_ZONE_PERSON_CONFIDENCE are ignored before the zone/classifier
+# checks even run. The classifier's own dwell-time/cooldown knobs (PERSON_STILL_SECONDS etc.) and
+# the zone-membership knobs (MIN_PERSON_HEIGHT etc.) are read directly from the environment by
+# heuristics/classifier.py and zones/zone_loader.py — see those modules.
+MIN_ZONE_PERSON_CONFIDENCE = float(os.getenv("MIN_ZONE_PERSON_CONFIDENCE", "0.5"))

@@ -21,16 +21,23 @@ import {
   ChannelScanResult,
   IceServersResult,
   UseSubstreamsResult,
-  LiveFrameResult
+  LiveFrameResult,
+  Zone,
+  SaveZoneRequest,
+  SecurityEvent,
+  ReviewStatus,
+  PaginatedEventsResponseData
 } from '../types';
 import { maskRtspUrl } from '../utils/security';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || '/api/v1';
 const USE_MOCK_FALLBACK = (import.meta as any).env?.VITE_USE_MOCK_FALLBACK === 'true';
 
-// The connector installer is hosted outside the /api/v1 prefix (e.g. /downloads/connector),
-// by the same backend that serves the API — strip the /api/v1 suffix to get its origin.
-export const CONNECTOR_DOWNLOAD_URL = `${API_BASE.replace(/\/api\/v1\/?$/, '')}/downloads/connector/latest`;
+// The backend's own origin, with the /api/v1 prefix stripped — e.g. for the connector
+// installer (hosted at /downloads/connector) and evidence links (already full /api/v1/... paths,
+// see EvidenceViewer.tsx), both served by the same backend but outside/alongside the API prefix.
+export const API_ORIGIN = API_BASE.replace(/\/api\/v1\/?$/, '');
+export const CONNECTOR_DOWNLOAD_URL = `${API_ORIGIN}/downloads/connector/latest`;
 
 class ApiClient {
   private token: string | null = null;
@@ -398,6 +405,62 @@ class ApiClient {
     });
   }
 
+  // --- Security Zone APIs ---
+  public async getZone(cameraId: string): Promise<Zone | null> {
+    try {
+      return await this.request<Zone | null>(`/cameras/${cameraId}/zones`);
+    } catch (err: any) {
+      if (err.status === 404 || err.message?.includes('NOT_FOUND') || err.message?.includes('404')) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  public async saveZone(cameraId: string, input: SaveZoneRequest): Promise<Zone> {
+    return this.request<Zone>(`/cameras/${cameraId}/zones`, {
+      method: 'PUT',
+      body: JSON.stringify(input)
+    });
+  }
+
+  // --- Security Event (zone-watch alert) APIs ---
+  public async listEvents(
+    shopId: string,
+    query?: { cursor?: string; limit?: number; eventType?: string }
+  ): Promise<PaginatedEventsResponseData> {
+    const params = new URLSearchParams();
+    if (query?.cursor) params.set('cursor', query.cursor);
+    if (query?.limit) params.set('limit', String(query.limit));
+    if (query?.eventType) params.set('eventType', query.eventType);
+    const qs = params.toString();
+    return this.request<PaginatedEventsResponseData>(`/shops/${shopId}/events${qs ? `?${qs}` : ''}`);
+  }
+
+  public async getEvent(eventId: string): Promise<SecurityEvent> {
+    const res = await this.request<{ event: SecurityEvent }>(`/events/${eventId}`);
+    return res.event;
+  }
+
+  public async reviewEvent(eventId: string, reviewStatus: Exclude<ReviewStatus, 'NEW'>): Promise<SecurityEvent> {
+    const res = await this.request<{ event: SecurityEvent }>(`/events/${eventId}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ reviewStatus })
+    });
+    return res.event;
+  }
+
+  public async deleteEvent(eventId: string): Promise<void> {
+    await this.request<{ id: string }>(`/events/${eventId}`, { method: 'DELETE' });
+  }
+
+  public async bulkDeleteEvents(shopId: string, ids: string[]): Promise<{ deleted: number }> {
+    return this.request<{ deleted: number }>(`/shops/${shopId}/events/bulk-delete`, {
+      method: 'POST',
+      body: JSON.stringify({ ids })
+    });
+  }
+
   // --- Footfall Analytics APIs ---
   public async getFootfallSummary(shopId: string, date?: string): Promise<FootfallSummary> {
     const query = date ? `?date=${encodeURIComponent(date)}` : '';
@@ -522,6 +585,9 @@ class ApiClient {
     }));
 
     let baselineOverrides: Record<string, number> = JSON.parse(this.getItem('dbi_mock_baselines') || '{}');
+
+    let zones: Record<string, Zone> = JSON.parse(this.getItem('dbi_mock_zones') || '{}');
+    let securityEvents: SecurityEvent[] = JSON.parse(this.getItem('dbi_mock_events') || '[]');
 
     let connectors: Connector[] = JSON.parse(this.getItem('dbi_mock_connectors') || '[]');
     let connectorPairingCodes: Record<string, { pairingCode: string; pairingCodeExpiresAt: string }> = JSON.parse(
@@ -937,6 +1003,80 @@ class ApiClient {
         this.setItem('dbi_mock_lines', JSON.stringify(lines));
         return updatedLine;
       }
+    }
+
+    // 9b. /cameras/:cameraId/zones (GET & PUT)
+    const zoneMatch = endpoint.match(/^\/cameras\/([^/?]+)\/zones(?:\?.*)?$/);
+    if (zoneMatch) {
+      const cameraId = zoneMatch[1];
+      const cam = cameras.find(c => c.id === cameraId);
+      if (cam) verifyShopOwnership(cam.shopId);
+      if (method === 'GET') {
+        return zones[cameraId] || null;
+      }
+      if (method === 'PUT') {
+        const updatedZone: Zone = {
+          id: zones[cameraId]?.id || 'zone_' + Math.random().toString(36).substring(2, 8),
+          shopId: cam?.shopId || 'shop_001',
+          cameraId,
+          zoneType: body.zoneType || 'SHUTTER',
+          polygon: body.polygon || [],
+          sensitivity: body.sensitivity || 'MEDIUM',
+          enabled: body.enabled !== undefined ? body.enabled : true,
+          updatedAt: new Date().toISOString()
+        };
+        zones[cameraId] = updatedZone;
+        this.setItem('dbi_mock_zones', JSON.stringify(zones));
+        return updatedZone;
+      }
+    }
+
+    // 9c. /shops/:shopId/events (GET)
+    const shopEventsMatch = endpoint.match(/^\/shops\/([^/?]+)\/events(?:\?.*)?$/);
+    if (shopEventsMatch && method === 'GET') {
+      const shopId = shopEventsMatch[1];
+      verifyShopOwnership(shopId);
+      const items = securityEvents
+        .filter(e => e.shopId === shopId)
+        .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+      return { items, nextCursor: null, total: items.length };
+    }
+
+    // 9d. /events/:eventId (GET & DELETE)
+    const eventMatch = endpoint.match(/^\/events\/([^/?]+)(?:\?.*)?$/);
+    if (eventMatch && (method === 'GET' || method === 'DELETE')) {
+      const eventId = eventMatch[1];
+      const evt = securityEvents.find(e => e.eventId === eventId);
+      if (!evt) {
+        const err = new Error(`[NOT_FOUND] Event ${eventId} not found`);
+        (err as any).isHttpError = true;
+        (err as any).status = 404;
+        throw err;
+      }
+      verifyShopOwnership(evt.shopId);
+      if (method === 'DELETE') {
+        securityEvents = securityEvents.filter(e => e.eventId !== eventId);
+        this.setItem('dbi_mock_events', JSON.stringify(securityEvents));
+        return { id: eventId, message: 'Event deleted successfully' };
+      }
+      return { event: evt };
+    }
+
+    // 9e. /events/:eventId/review (POST)
+    const reviewMatch = endpoint.match(/^\/events\/([^/?]+)\/review(?:\?.*)?$/);
+    if (reviewMatch && method === 'POST') {
+      const eventId = reviewMatch[1];
+      const evt = securityEvents.find(e => e.eventId === eventId);
+      if (!evt) {
+        const err = new Error(`[NOT_FOUND] Event ${eventId} not found`);
+        (err as any).isHttpError = true;
+        (err as any).status = 404;
+        throw err;
+      }
+      verifyShopOwnership(evt.shopId);
+      evt.reviewStatus = body.reviewStatus;
+      this.setItem('dbi_mock_events', JSON.stringify(securityEvents));
+      return { event: evt };
     }
 
     // 10. /shops/:shopId/footfall/summary
