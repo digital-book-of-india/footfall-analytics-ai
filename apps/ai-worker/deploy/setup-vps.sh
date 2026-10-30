@@ -42,6 +42,9 @@ fi
 ./.venv/bin/pip install --upgrade pip
 ./.venv/bin/pip install -r requirements.txt
 
+echo "==> Downloading detection models (YOLOX person detector, YuNet face check)"
+./.venv/bin/python scripts/prepare_models.py
+
 if [ ! -f .env ]; then
   cp .env.example .env
   echo ""
